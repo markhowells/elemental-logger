@@ -1,0 +1,27 @@
+{
+  "vessel": {
+    "name": "VESSEL_NAME_PLACEHOLDER",
+    "mmsi": "VESSEL_MMSI_PLACEHOLDER",
+    "uuid": ""
+  },
+  "pipedProviders": [
+    {
+      "id": "n2k-canbus",
+      "pipeElements": [
+        {
+          "type": "providers/canbus",
+          "options": {
+            "canDevice": "can0"
+          }
+        }
+      ],
+      "enabled": true
+    }
+  ],
+  "port": 3000,
+  "sslport": 3443,
+  "security": {
+    "strategy": "./tokensecurity",
+    "allow_readonly": true
+  }
+}

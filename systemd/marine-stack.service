@@ -1,0 +1,16 @@
+[Unit]
+Description=Marine Stack (SignalK + InfluxDB)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=SCRIPT_DIR_PLACEHOLDER
+ExecStart=/usr/bin/docker compose -f SCRIPT_DIR_PLACEHOLDER/docker-compose.yml up -d
+ExecStop=/usr/bin/docker compose -f SCRIPT_DIR_PLACEHOLDER/docker-compose.yml down
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

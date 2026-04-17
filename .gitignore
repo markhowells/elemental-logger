@@ -1,0 +1,7 @@
+# Generated from templates — contain real credentials/vessel data
+docker-compose.yml
+config/signalk/settings.json
+config/signalk/plugin-config-data/signalk-to-influxdb2.json
+
+# Local Claude Code settings
+.claude/settings.local.json
