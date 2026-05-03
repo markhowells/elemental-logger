@@ -8,6 +8,9 @@ services:
     container_name: signalk
     restart: unless-stopped
     network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
     volumes:
       - signalk_data:/home/node/.signalk
       - SCRIPT_DIR_PLACEHOLDER/config/signalk/plugin-config-data/signalk-to-influxdb2.json:/home/node/.signalk-defaults/plugin-config-data/signalk-to-influxdb2.json:ro

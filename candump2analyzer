@@ -1,0 +1,60 @@
+#!/usr/bin/env node
+'use strict';
+/**
+ * Converts candump output to Actisense serial format for SignalK's n2kAnalyzer.
+ *
+ * Input:  "  can0  09F50B00   [8]  00 64 00 00 00 00 00 00"
+ * Output: "2024-01-01T12:00:00.000Z,2,128267,0,255,8,00,64,00,00,00,00,00,00"
+ *
+ * NMEA 2000 CAN ID (29-bit extended frame):
+ *   bits 28-26  priority
+ *   bit  24     data page (DP)
+ *   bits 23-16  PDU format (PF)
+ *   bits 15-8   PDU specific (PS) — destination if PF<240, group ext if PF>=240
+ *   bits  7-0   source address
+ */
+const readline = require('readline');
+
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+function parseCanId(hexId) {
+  const id = parseInt(hexId, 16);
+  const priority = (id >> 26) & 0x7;
+  const dp       = (id >> 24) & 0x1;
+  const pf       = (id >> 16) & 0xFF;
+  const ps       = (id >>  8) & 0xFF;
+  const src      =  id        & 0xFF;
+  let pgn, dst;
+  if (pf < 0xF0) {        // PDU1 — addressed
+    dst = ps;
+    pgn = (dp << 16) | (pf << 8);
+  } else {                // PDU2 — broadcast
+    dst = 0xFF;
+    pgn = (dp << 16) | (pf << 8) | ps;
+  }
+  return { priority, pgn, src, dst };
+}
+
+function emit(priority, pgn, src, dst, data) {
+  const ts = new Date().toISOString();
+  process.stdout.write(`${ts},${priority},${pgn},${src},${dst},${data.length},${data.join(',')}\n`);
+}
+
+rl.on('line', (line) => {
+  // Standard candump: "  can0  09F50B00   [8]  00 64 00 00 00 00 00 00"
+  let m = line.match(/^\s*\S+\s+([0-9A-Fa-f]{8})\s+\[(\d+)\]\s+((?:[0-9A-Fa-f]{2}\s*)+)$/);
+  if (m) {
+    const { priority, pgn, src, dst } = parseCanId(m[1]);
+    emit(priority, pgn, src, dst, m[3].trim().split(/\s+/));
+    return;
+  }
+  // Log-format candump: "(1234567.890) can0 09F50B00#0064000000000000"
+  m = line.match(/^\s*\(\d+\.\d+\)\s+\S+\s+([0-9A-Fa-f]{8})#([0-9A-Fa-f]+)$/);
+  if (m) {
+    const { priority, pgn, src, dst } = parseCanId(m[1]);
+    const hex = m[2];
+    const data = [];
+    for (let i = 0; i < hex.length; i += 2) data.push(hex.substr(i, 2));
+    emit(priority, pgn, src, dst, data);
+  }
+});

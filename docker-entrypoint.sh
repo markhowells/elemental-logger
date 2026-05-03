@@ -1,5 +1,20 @@
 #!/bin/sh
 
+# Ensure node binary is on PATH (the base image may install it via nvm,
+# which only gets sourced in login shells — not in a Docker entrypoint).
+if ! command -v node >/dev/null 2>&1; then
+    _node=$(find /usr/local/bin /usr/bin /home/node /root -maxdepth 6 \
+        -name node -type f -perm /u+x 2>/dev/null | head -1)
+    if [ -n "$_node" ]; then
+        export PATH="$(dirname "$_node"):$PATH"
+        echo "[marine] node found at $_node — added to PATH"
+    else
+        echo "[marine] ERROR: node binary not found — cannot start SignalK"
+        exit 1
+    fi
+    unset _node
+fi
+
 DEFAULTS="/home/node/.signalk-defaults"
 DATA="/home/node/.signalk"
 
@@ -40,6 +55,18 @@ fi
 
 export IS_IN_DOCKER=true
 export CONTAINER_RUNTIME=docker
+
+# Diagnose CAN prerequisites once at container start
+if command -v candump2analyzer >/dev/null 2>&1; then
+    echo "[marine] candump2analyzer: OK"
+else
+    echo "[marine] WARNING: candump2analyzer not found — CAN bus data will not flow"
+fi
+if ip link show can0 2>/dev/null | grep -q "state UP"; then
+    echo "[marine] can0: UP"
+else
+    echo "[marine] WARNING: can0 is not UP — CAN bus data will not be received"
+fi
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 

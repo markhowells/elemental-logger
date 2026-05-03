@@ -9,9 +9,13 @@
       "id": "n2k-canbus",
       "pipeElements": [
         {
-          "type": "providers/canbus",
+          "type": "providers/simple",
           "options": {
-            "canDevice": "can0"
+            "type": "NMEA2000",
+            "subOptions": {
+              "type": "canbus",
+              "interface": "can0"
+            }
           }
         }
       ],

@@ -89,6 +89,8 @@ apt-get install -y \
     hostapd \
     dnsmasq \
     can-utils \
+    canboat \
+    python3-can \
     rfkill \
     iw
 

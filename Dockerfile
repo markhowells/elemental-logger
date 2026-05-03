@@ -12,6 +12,15 @@ RUN npm install --prefix /home/node/.signalk \
 # Copy defaults to a location outside the volume mount point.
 # The entrypoint seeds these into the volume on first run only —
 # runtime changes (e.g. units, vessel name) are never overwritten.
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        can-utils && \
+    rm -rf /var/lib/apt/lists/*
+USER node
+
+COPY --chmod=755 candump2analyzer /usr/local/bin/candump2analyzer
+COPY --chmod=755 signalk-analyzer /usr/local/bin/analyzer
+
 COPY --chown=node:node config/signalk/settings.json \
     /home/node/.signalk-defaults/settings.json
 COPY --chown=node:node config/signalk/plugin-config-data/signalk-to-influxdb2.json \

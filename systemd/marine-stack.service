@@ -8,9 +8,17 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=SCRIPT_DIR_PLACEHOLDER
+ExecStartPre=/bin/bash -c '\
+  for i in $(seq 1 30); do \
+    ip link show can0 2>/dev/null | grep -q "state UP" && exit 0; \
+    echo "marine-stack: waiting for can0 ($i/30)..."; \
+    sleep 1; \
+  done; \
+  echo "marine-stack: can0 not UP after 30s — aborting"; \
+  exit 1'
 ExecStart=/usr/bin/docker compose -f SCRIPT_DIR_PLACEHOLDER/docker-compose.yml up -d
 ExecStop=/usr/bin/docker compose -f SCRIPT_DIR_PLACEHOLDER/docker-compose.yml down
-TimeoutStartSec=120
+TimeoutStartSec=180
 
 [Install]
 WantedBy=multi-user.target
