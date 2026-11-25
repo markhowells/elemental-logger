@@ -64,6 +64,19 @@ for i in $(seq 1 90); do
     sleep 1
 done
 if [[ $FOUND -ne 1 ]]; then
-    echo "FAIL: no point reached InfluxDB"; docker logs signalk 2>&1 | tail -60; exit 1
+    echo "FAIL: no point reached InfluxDB"
+    echo "--- [marine]/plugin/influx lines from signalk log"
+    docker logs signalk 2>&1 | grep -v 'GET /signalk' | grep -i -E 'marine|influx|plugin|can|nmea|error|warn|provider' | head -80 || true
+    echo "--- settings.json in the volume (pipedProviders)"
+    docker exec signalk sh -c 'cat /home/node/.signalk/settings.json' 2>&1 | head -40 || true
+    echo "--- plugin config in the volume"
+    docker exec signalk sh -c 'cat /home/node/.signalk/plugin-config-data/signalk-to-influxdb2.json' 2>&1 | sed -E 's/("token": *")[^"]*/\1***/' | head -40 || true
+    echo "--- CAN traffic seen on the host"
+    timeout 3 candump can0 2>&1 | head -5 || true
+    echo "--- SignalK data model: depth"
+    curl -s http://localhost:3000/signalk/v1/api/vessels/self/environment 2>&1 | head -c 600 || true; echo
+    echo "--- interface inside the signalk container"
+    docker exec signalk ip -br link show 2>&1 | head || true
+    exit 1
 fi
 echo "SMOKE TEST PASSED"
