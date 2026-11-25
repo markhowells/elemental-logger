@@ -1,5 +1,7 @@
 # Tag vX.Y.Z -> build + push the image, pin it by digest in a release bundle, and publish the
 # bundle + manifest (the feed the Pi's marine-update polls) to GitHub Pages.
+# Deployment is a separate job so that a failed Pages deploy can be retried on its own
+# ("Re-run failed jobs") without rebuilding the image or changing the bundle.
 name: release
 
 on:
@@ -7,9 +9,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: read
 
 jobs:
   image:
@@ -23,12 +23,11 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
-  publish:
+  bundle:
     needs: image
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+    permissions:
+      contents: write # create the GitHub Release
     steps:
       - uses: actions/checkout@v4
       - name: Build the release bundle with the image pinned by digest
@@ -63,5 +62,16 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
+
+  deploy:
+    needs: bundle
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
       - id: deploy
         uses: actions/deploy-pages@v4
