@@ -20,6 +20,7 @@ jobs:
         ${{ github.ref_name }}
         latest
     secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
   publish:
@@ -32,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build the release bundle with the image pinned by digest
         env:
-          IMAGE: ${{ vars.DOCKERHUB_NAMESPACE }}/elemental-signalk
+          IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/elemental-signalk
           DIGEST: ${{ needs.image.outputs.digest }}
           VERSION: ${{ github.ref_name }}
         run: |

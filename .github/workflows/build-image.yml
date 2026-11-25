@@ -18,11 +18,13 @@ on:
         description: "Multi-arch manifest digest (empty when not pushed)"
         value: ${{ jobs.merge.outputs.digest }}
     secrets:
+      DOCKERHUB_USERNAME:
+        required: false
       DOCKERHUB_TOKEN:
         required: false
 
 env:
-  IMAGE: ${{ vars.DOCKERHUB_NAMESPACE }}/elemental-signalk
+  IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/elemental-signalk
 
 jobs:
   build:
@@ -46,7 +48,7 @@ jobs:
       - if: inputs.push
         uses: docker/login-action@v3
         with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - id: build
         uses: docker/build-push-action@v6
@@ -98,7 +100,7 @@ jobs:
       - if: inputs.push
         uses: docker/login-action@v3
         with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - if: inputs.push
         name: Create multi-arch manifest

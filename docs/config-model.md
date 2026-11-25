@@ -66,7 +66,7 @@ Tag `vX.Y.Z` → CI builds the image (arm64 + amd64), pins it by digest in `depl
 `releases/latest.json` (`version`, `bundle_url`, `bundle_sha256`) to GitHub Pages. The Pi verifies the sha256
 before using anything, then pulls the images by digest.
 
-CI needs: repo variables `DOCKERHUB_NAMESPACE`, `DOCKERHUB_USERNAME`; secret `DOCKERHUB_TOKEN`; Pages enabled
+CI needs: secrets `DOCKERHUB_USERNAME` (also the image namespace) and `DOCKERHUB_TOKEN`; Pages enabled (source: GitHub Actions).
 (source: GitHub Actions).
 
 ## The plugin
