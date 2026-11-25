@@ -1,78 +1,61 @@
-# Marine Pi
+# Elemental logger (Marine Pi)
 
-Raspberry Pi setup for a sailing vessel. Turns the Pi into a WiFi access point and runs a Docker stack for instrument data logging.
+A Raspberry Pi for a sailing vessel: reads NMEA 2000 from a CAN bus, serves it with **SignalK**, logs history to
+**InfluxDB**, manages containers with **Portainer**, serves a landing page/reverse proxy with **Caddy**, and
+broadcasts its own Wi-Fi access point (`10.42.0.1`) so phones and tablets work without a router.
 
-## What it does
+The Pi is **offline at sea** and online only occasionally, so releases are *pulled* by the Pi when it can reach
+the Internet; nothing is ever pushed to it. See [docs/config-model.md](docs/config-model.md) for how
+configuration, secrets and updates fit together and [docs/boat-checklist.md](docs/boat-checklist.md) for what to
+do before and after a trip.
 
-- Reads NMEA 2000 data from a CAN bus (`can0`)
-- Serves vessel data via **SignalK** at `http://<pi-ip>:3000`
-- Stores time-series data in **InfluxDB** at `http://<pi-ip>:8086`
-- Manages containers via **Portainer** at `http://<pi-ip>:9000`
-- Broadcasts a WiFi access point so phones/tablets can connect without a router
+## Services
 
-## Requirements
+| Service | URL on the boat Wi-Fi |
+|---|---|
+| Landing page | `http://elemental.internal/` (or `http://10.42.0.1/`) |
+| SignalK | `http://signalk.elemental.internal/` (or `:3000`) |
+| InfluxDB | `http://influx.elemental.internal/` (or `:8086`) |
+| Portainer | `http://portainer.elemental.internal/` (or `:9000`) |
 
-- Raspberry Pi running Debian (bookworm or trixie)
-- CAN bus interface on `can0` (e.g. PiCAN2)
-- Internet access during setup (to pull Docker images and the SignalK plugin)
-
-## Setup
-
-1. Clone this repo onto the Pi.
-
-2. Edit `marine.conf` — replace every `changeme` value:
-
-   ```bash
-   nano marine.conf
-   ```
-
-   | Variable | Description |
-   |---|---|
-   | `WIFI_SSID` | Access point name |
-   | `WIFI_PASSWORD` | WPA2 passphrase (8–63 chars) |
-   | `WIFI_COUNTRY` | ISO 3166-1 alpha-2 country code (e.g. `GB`) |
-   | `PORTAINER_ADMIN_PASSWORD` | Portainer admin password (12+ chars) |
-   | `INFLUXDB_USERNAME` | InfluxDB admin username |
-   | `INFLUXDB_PASSWORD` | InfluxDB admin password |
-   | `INFLUXDB_TOKEN` | Operator token — generate with `openssl rand -hex 32` |
-   | `INFLUXDB_ORG` | InfluxDB organisation name |
-   | `INFLUXDB_BUCKET` | InfluxDB bucket name |
-   | `VESSEL_NAME` | Vessel name (written into SignalK) |
-   | `VESSEL_MMSI` | MMSI number (optional — leave blank if none) |
-
-3. Run the setup script as root:
-
-   ```bash
-   sudo ./setup.sh
-   ```
-
-   This will install Docker, configure the WiFi AP, build the SignalK image, and start all services. Takes a few minutes on first run.
-
-4. Log out and back in for Docker group membership to take effect.
-
-## Accessing services
-
-After setup, connect a device to the WiFi AP and open:
-
-| Service | URL | Credentials |
-|---|---|---|
-| SignalK | `http://10.42.0.1:3000` | set in SignalK UI |
-| InfluxDB | `http://10.42.0.1:8086` | `INFLUXDB_USERNAME` / `INFLUXDB_PASSWORD` |
-| Portainer | `http://10.42.0.1:9000` | `admin` / `PORTAINER_ADMIN_PASSWORD` |
-
-## Updating SignalK
-
-After modifying `Dockerfile` or the plugin:
+## Install (needs Internet once)
 
 ```bash
-docker build -t marine-signalk:latest .
-sudo systemctl restart marine-stack
+# On the Pi, from a checkout of this repo or an extracted release bundle:
+sudo ./deploy/install.sh      # first run creates /etc/marine/marine.env from marine.env.example and stops
+sudo nano /etc/marine/marine.env   # replace every 'changeme'; org/bucket must match any EXISTING InfluxDB
+sudo ./deploy/install.sh      # installs host packages, units, renders config, starts everything
+sudo marine-doctor            # check it
 ```
 
-## Logs
+Secrets live only in `/etc/marine/marine.env` (mode 0600). They are never committed and never baked into images.
+
+## Day to day
 
 ```bash
-docker logs signalk
-docker logs influxdb
-docker logs portainer
+sudo marine-doctor            # health + drift report (read-only)
+sudo marine-apply             # re-render config from the release and apply it
+sudo marine-update --check    # is there a newer release? (quiet when offline)
+docker logs signalk | influxdb | caddy | portainer
+```
+
+## Repo layout
+
+```
+images/signalk/    Dockerfile, entrypoint, CAN helper scripts, plugin.version (pinned plugin + base image)
+config/            templates only (SignalK, hostapd, dnsmasq, Caddyfile, landing page, can0.network)
+deploy/            compose files, images.env (pins), marine-apply/-doctor/-update, install.sh, systemd units
+tools/             canswitch.sh (vcan bench switch), smoke-test.sh (CI end-to-end), experimental/
+tests/run.sh       unit tests for the renderer, settings merge and updater (no Docker needed)
+.github/workflows  ci (lint, tests, build, smoke), release (bundle + Pages feed), plugin-sync (fork vs upstream)
+```
+
+## Development
+
+```bash
+tests/run.sh                                   # fast, no Docker
+set -a; . images/signalk/plugin.version; set +a
+docker build -f images/signalk/Dockerfile --build-arg SIGNALK_BASE --build-arg PLUGIN_REPO --build-arg PLUGIN_REF \
+    -t elemental-signalk:dev images/signalk
+SIGNALK_IMAGE=elemental-signalk:dev tools/smoke-test.sh   # vcan -> SignalK -> InfluxDB (needs Docker + sudo)
 ```

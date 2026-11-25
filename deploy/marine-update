@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# marine-update — pull a new release when the Pi happens to be online.
+#
+#   marine-update --check     show whether a newer release exists (changes nothing)
+#   marine-update --stage     download + verify the release bundle and pull its images
+#   marine-update --apply     apply the staged release (with automatic rollback on failure)
+#   marine-update --auto      what the systemd timer runs: stage, and apply only if AUTO_APPLY=yes
+#   marine-update             same as --stage, then --apply
+#
+# Being offline is the NORMAL case on the boat: if the manifest can't be fetched this exits 0
+# quietly. The release is a tarball (templates + deploy scripts + images.env with pinned image
+# digests) whose sha256 comes from the manifest. Nothing is applied unless it verifies.
+#
+# Manifest (JSON): {"version": "1.2.3", "bundle_url": "https://…/marine-1.2.3.tar.gz", "bundle_sha256": "…"}
+set -euo pipefail
+
+ENV_FILE="${MARINE_ENV:-/etc/marine/marine.env}"
+STATE="${MARINE_STATE_DIR:-/var/lib/marine}"
+OPT="${MARINE_OPT_DIR:-/opt/marine}"
+DEFAULT_URL="https://markhowells.github.io/elemental-logger/releases/latest.json"
+UPDATE_URL="${MARINE_UPDATE_URL:-$(grep -E '^UPDATE_URL=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- || true)}"
+UPDATE_URL="${UPDATE_URL:-$DEFAULT_URL}"
+AUTO_APPLY="$(grep -E '^AUTO_APPLY=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- || true)"; AUTO_APPLY="${AUTO_APPLY:-no}"
+DRY="${MARINE_DRY_RUN:-0}"   # 1 = don't touch docker / marine-apply (tests)
+
+log() { echo "marine-update: $*"; }
+fail() { echo "marine-update: ERROR: $*" >&2; exit 1; }
+jget() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$1" "$2"; }
+
+ACTION="${1:-}"
+case "$ACTION" in
+    --check|--stage|--apply|--auto|"") ;;
+    *) echo "usage: marine-update [--check|--stage|--apply|--auto]" >&2; exit 2 ;;
+esac
+
+mkdir -p "$STATE/staged"
+exec 9>"$STATE/update.lock"
+flock -n 9 || { log "another update is running"; exit 0; }
+
+current_version() { jget "$STATE/current.json" version 2>/dev/null || echo none; }
+
+fetch_manifest() {
+    local m="$STATE/staged/manifest.json"
+    if ! curl -fsSL --max-time 20 --retry 2 "$UPDATE_URL" -o "$m.tmp" 2>/dev/null; then
+        log "offline or release feed unreachable — nothing to do"
+        return 1
+    fi
+    python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); [d[k] for k in ("version","bundle_url","bundle_sha256")]' "$m.tmp" \
+        || { rm -f "$m.tmp"; fail "manifest is malformed"; }
+    mv "$m.tmp" "$m"
+}
+
+do_check() {
+    fetch_manifest || return 1
+    local have want; have="$(current_version)"; want="$(jget "$STATE/staged/manifest.json" version)"
+    if [[ "$have" == "$want" ]]; then log "up to date ($have)"; return 2; fi
+    if [[ -f "$STATE/failed/$want" ]]; then log "release $want previously failed to apply — skipping (remove $STATE/failed/$want to retry)"; return 2; fi
+    log "update available: $have -> $want"
+    return 0
+}
+
+do_stage() {
+    local want url sha dir; want="$(jget "$STATE/staged/manifest.json" version)"
+    url="$(jget "$STATE/staged/manifest.json" bundle_url)"; sha="$(jget "$STATE/staged/manifest.json" bundle_sha256)"
+    dir="$STATE/staged/$want"; mkdir -p "$dir"
+    if [[ ! -f "$dir/bundle.tar.gz" ]] || ! echo "$sha  $dir/bundle.tar.gz" | sha256sum -c --quiet 2>/dev/null; then
+        log "downloading $want"
+        curl -fsSL --max-time 300 --retry 3 "$url" -o "$dir/bundle.tar.gz.tmp" || { log "download failed — will retry next time"; rm -f "$dir/bundle.tar.gz.tmp"; return 1; }
+        mv "$dir/bundle.tar.gz.tmp" "$dir/bundle.tar.gz"
+    fi
+    echo "$sha  $dir/bundle.tar.gz" | sha256sum -c --quiet || { rm -f "$dir/bundle.tar.gz"; fail "bundle checksum mismatch — refusing to use it"; }
+    rm -rf "$dir/x"; mkdir -p "$dir/x"
+    # refuse path traversal / absolute paths in the archive
+    if tar -tzf "$dir/bundle.tar.gz" | grep -E -q '(^/|(^|/)\.\.(/|$))'; then fail "bundle contains unsafe paths"; fi
+    tar -xzf "$dir/bundle.tar.gz" -C "$dir/x" --no-same-owner
+    [[ -f "$dir/x/deploy/marine-apply" && -f "$dir/x/deploy/images.env" ]] || fail "bundle is missing deploy/marine-apply or deploy/images.env"
+    if [[ "$DRY" != 1 ]]; then
+        while IFS='=' read -r k v; do
+            [[ "$k" == *_IMAGE ]] || continue
+            log "pulling $v"
+            docker pull --quiet "$v" >/dev/null || { log "pull failed for $v — staying on the current release"; return 1; }
+        done < <(grep -E '^[A-Z]+_IMAGE=' "$dir/x/deploy/images.env")
+    fi
+    echo "$want" > "$STATE/staged/READY"
+    log "staged $want"
+}
+
+do_apply() {
+    [[ -f "$STATE/staged/READY" ]] || { log "nothing staged"; return 0; }
+    local want dir rel prev; want="$(cat "$STATE/staged/READY")"; dir="$STATE/staged/$want/x"
+    rel="$OPT/releases/$want"; prev="$(readlink -f "$OPT/current" 2>/dev/null || true)"
+    [[ -d "$dir" ]] || fail "staged tree for $want is missing"
+    mkdir -p "$OPT/releases"; rm -rf "$rel"; cp -a "$dir" "$rel"; echo "$want" > "$rel/VERSION"
+    ln -sfn "$rel" "$OPT/current.new" && mv -Tf "$OPT/current.new" "$OPT/current"
+    log "applying $want (previous: ${prev:-none})"
+    local ok=1
+    if [[ "$DRY" != 1 ]]; then "$OPT/current/deploy/marine-apply" || ok=0; fi
+    if [[ $ok -eq 1 ]]; then
+        printf '{"version":"%s","applied":"%s"}\n' "$want" "$(date -u +%FT%TZ)" > "$STATE/current.json"
+        rm -f "$STATE/staged/READY"
+        log "now running $want"
+        return 0
+    fi
+    log "apply FAILED — rolling back to ${prev:-none}"
+    mkdir -p "$STATE/failed"; touch "$STATE/failed/$want"
+    if [[ -n "$prev" && -d "$prev" ]]; then
+        ln -sfn "$prev" "$OPT/current.new" && mv -Tf "$OPT/current.new" "$OPT/current"
+        [[ "$DRY" == 1 ]] || "$OPT/current/deploy/marine-apply" || log "WARNING: rollback apply also failed — run marine-doctor"
+    fi
+    rm -f "$STATE/staged/READY"
+    return 1
+}
+
+case "$ACTION" in
+    --check) do_check || true; exit 0 ;;
+    --stage) do_check && do_stage || true ;;
+    --apply) do_apply ;;
+    --auto)
+        if do_check && do_stage; then
+            if [[ "$AUTO_APPLY" == yes ]]; then do_apply; else log "staged; AUTO_APPLY=no — apply with: marine-update --apply"; fi
+        fi
+        exit 0 ;;
+    "")      if do_check; then do_stage && do_apply; fi ;;
+esac

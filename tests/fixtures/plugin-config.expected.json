@@ -1,0 +1,26 @@
+{
+  "enabled": true,
+  "enableLogging": false,
+  "enableDebug": true,
+  "configuration": {
+    "outputDailyLog": false,
+    "influxes": [
+      {
+        "url": "http://localhost:8086",
+        "token": "0123456789abcdef0123456789abcdef0123456789",
+        "org": "Elemental",
+        "bucket": "sailing_data",
+        "onlySelf": true,
+        "filteringRules": [{"allow": true}],
+        "ignoredPaths": [],
+        "ignoredSources": [],
+        "useSKTimestamp": false,
+        "resolution": 0,
+        "tagPaths": [],
+        "sailInventoryTag": {"enabled": true, "tagName": "sail_config", "defaultValue": "unknown"},
+        "consolidatedMeasurement": "instruments",
+        "writeOptions": {"batchSize": 1000, "flushInterval": 10000}
+      }
+    ]
+  }
+}

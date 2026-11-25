@@ -1,0 +1,8 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+  # Image pins live in deploy/images.env and images/signalk/plugin.version (not Dockerfile FROM lines),
+  # which Dependabot cannot parse. Bump them deliberately; see docs/config-model.md.

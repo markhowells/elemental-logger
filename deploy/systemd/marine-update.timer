@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily marine release check
+
+[Timer]
+# The Pi is only occasionally online: also try shortly after every boot.
+OnBootSec=5min
+OnCalendar=daily
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

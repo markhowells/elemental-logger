@@ -1,0 +1,24 @@
+# Portainer CE, kept separate from the marine stack so it survives a stack restart.
+#   docker compose --env-file /var/lib/marine/rendered/compose.env -f deploy/portainer.yml up -d
+#
+# Project/volume names pinned for the same reason as docker-compose.yml: the original
+# install ran both compose files as project "pi" (so the existing 'portainer' container
+# belongs to that project and a different project name would hit a name conflict), and
+# created pi_portainer_data; keep binding to it.
+name: pi
+
+services:
+  portainer:
+    image: ${PORTAINER_IMAGE:?PORTAINER_IMAGE is not set}
+    container_name: portainer
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+
+volumes:
+  portainer_data:
+    name: pi_portainer_data

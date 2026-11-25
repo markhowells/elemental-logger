@@ -1,8 +1,7 @@
 {
   "vessel": {
     "name": "VESSEL_NAME_PLACEHOLDER",
-    "mmsi": "VESSEL_MMSI_PLACEHOLDER",
-    "uuid": ""
+    "mmsi": "VESSEL_MMSI_PLACEHOLDER"
   },
   "pipedProviders": [
     {
@@ -14,7 +13,7 @@
             "type": "NMEA2000",
             "subOptions": {
               "type": "canbus",
-              "interface": "can0"
+              "interface": "CAN_INTERFACE_PLACEHOLDER"
             }
           }
         }
@@ -26,6 +25,6 @@
   "sslport": 3443,
   "security": {
     "strategy": "./tokensecurity",
-    "allow_readonly": true
+    "allow_readonly": "SIGNALK_ALLOW_READONLY_PLACEHOLDER"
   }
 }

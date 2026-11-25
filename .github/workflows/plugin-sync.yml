@@ -1,0 +1,54 @@
+# Weekly: has upstream signalk-to-influxdb2 moved in a way that breaks our fork? Reports in the
+# job summary and opens/updates an issue when the fork needs a rebase. It never pushes.
+name: plugin-sync
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Try merging upstream main into the pinned fork integration branch
+        id: merge
+        run: |
+          set -a; . images/signalk/plugin.version; set +a
+          git clone -q "https://github.com/${PLUGIN_REPO}.git" /tmp/plugin
+          cd /tmp/plugin
+          git remote add upstream https://github.com/tkurki/signalk-to-influxdb2.git
+          git fetch -q upstream main
+          git checkout -q "$PLUGIN_REF"
+          git config user.email ci@example.invalid; git config user.name ci
+          behind="$(git rev-list --count HEAD..upstream/main)"
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          if git merge --no-edit upstream/main >/tmp/merge.log 2>&1; then
+            echo "conflicts=no" >> "$GITHUB_OUTPUT"
+            npm ci >/tmp/build.log 2>&1 && npm run build >>/tmp/build.log 2>&1 && echo "builds=yes" >> "$GITHUB_OUTPUT" || echo "builds=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "conflicts=yes" >> "$GITHUB_OUTPUT"; echo "builds=n/a" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Summary
+        run: |
+          {
+            echo "### signalk-to-influxdb2 fork vs upstream"
+            echo "- fork pin is ${{ steps.merge.outputs.behind }} commit(s) behind upstream main"
+            echo "- merge conflicts: ${{ steps.merge.outputs.conflicts }}"
+            echo "- builds after merge: ${{ steps.merge.outputs.builds }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Open an issue when the fork needs attention
+        if: steps.merge.outputs.conflicts == 'yes' || steps.merge.outputs.builds == 'no'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = "Plugin fork needs a rebase onto upstream";
+            const body = `Weekly plugin-sync found: conflicts=${{ steps.merge.outputs.conflicts }}, builds=${{ steps.merge.outputs.builds }}, behind=${{ steps.merge.outputs.behind }}.\n\nRun: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const { data: issues } = await github.rest.issues.listForRepo({ ...context.repo, state: "open", labels: "plugin-sync" });
+            if (issues.length) await github.rest.issues.createComment({ ...context.repo, issue_number: issues[0].number, body });
+            else await github.rest.issues.create({ ...context.repo, title, body, labels: ["plugin-sync"] });

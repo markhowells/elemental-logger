@@ -1,0 +1,10 @@
+interface=wlan0
+driver=nl80211
+ssid=WIFI_SSID_PLACEHOLDER
+hw_mode=g
+channel=6
+wpa=2
+wpa_passphrase=WIFI_PASSWORD_PLACEHOLDER
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
+country_code=WIFI_COUNTRY_PLACEHOLDER

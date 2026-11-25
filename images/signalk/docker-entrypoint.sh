@@ -6,7 +6,8 @@ if ! command -v node >/dev/null 2>&1; then
     _node=$(find /usr/local/bin /usr/bin /home/node /root -maxdepth 6 \
         -name node -type f -perm /u+x 2>/dev/null | head -1)
     if [ -n "$_node" ]; then
-        export PATH="$(dirname "$_node"):$PATH"
+        _nodedir="$(dirname "$_node")"
+        export PATH="$_nodedir:$PATH"
         echo "[marine] node found at $_node — added to PATH"
     else
         echo "[marine] ERROR: node binary not found — cannot start SignalK"
@@ -17,17 +18,46 @@ fi
 
 DEFAULTS="/home/node/.signalk-defaults"
 DATA="/home/node/.signalk"
+# Managed (rendered) config, bind-mounted read-only by docker-compose.
+MANAGED="/marine-config"
 
-# Seed configs on first run only
-if [ ! -f "$DATA/settings.json" ]; then
-    echo "[marine] First run: seeding settings.json"
-    cp "$DEFAULTS/settings.json" "$DATA/settings.json"
-fi
-if [ ! -f "$DATA/plugin-config-data/signalk-to-influxdb2.json" ]; then
-    echo "[marine] First run: seeding InfluxDB plugin config"
-    mkdir -p "$DATA/plugin-config-data"
-    cp "$DEFAULTS/plugin-config-data/signalk-to-influxdb2.json" \
-        "$DATA/plugin-config-data/signalk-to-influxdb2.json"
+# ── Managed config ──────────────────────────────────────────────────────────
+# The repo/release is the source of truth for these files, so they are applied
+# on EVERY start (no more seed-once drift):
+#   - plugin-config-data/signalk-to-influxdb2.json : overwritten
+#   - settings.json : only the managed keys are merged (SignalK rewrites the
+#     rest at runtime, see merge-settings.js and docs/config-model.md)
+# Everything else in the volume (security.json, users, KIP history, resources)
+# is preserved.
+mkdir -p "$DATA/plugin-config-data"
+if [ -d "$MANAGED" ]; then
+    if [ -f "$MANAGED/plugin-config-data/signalk-to-influxdb2.json" ]; then
+        if [ -f "$DATA/plugin-config-data/signalk-to-influxdb2.json" ] && \
+           ! cmp -s "$MANAGED/plugin-config-data/signalk-to-influxdb2.json" \
+                    "$DATA/plugin-config-data/signalk-to-influxdb2.json"; then
+            echo "[marine] DRIFT: live InfluxDB plugin config differed from managed config — overwriting"
+        fi
+        if cp "$MANAGED/plugin-config-data/signalk-to-influxdb2.json" \
+              "$DATA/plugin-config-data/signalk-to-influxdb2.json"; then
+            echo "[marine] Applied managed InfluxDB plugin config"
+        else
+            echo "[marine] ERROR: could not apply the managed InfluxDB plugin config (permissions on $MANAGED?) — InfluxDB logging will NOT work"
+        fi
+    else
+        echo "[marine] WARNING: no managed plugin config in $MANAGED — keeping existing"
+    fi
+    if [ -f "$MANAGED/settings.managed.json" ]; then
+        _ms_out="$(merge-settings "$MANAGED/settings.managed.json" "$DATA/settings.json" 2>&1)"
+        _ms_rc=$?
+        [ -n "$_ms_out" ] && echo "$_ms_out" | sed 's/^/[marine] /'
+        if [ "$_ms_rc" -ne 0 ]; then
+            echo "[marine] ERROR: merge-settings failed (exit $_ms_rc) — SignalK may start with unmanaged settings"
+        fi
+    else
+        echo "[marine] WARNING: no managed settings in $MANAGED — keeping existing"
+    fi
+else
+    echo "[marine] WARNING: $MANAGED not mounted — running with whatever config is in the volume"
 fi
 
 # Always sync the compiled plugin from the image into the volume so that
@@ -65,7 +95,9 @@ fi
 if ip link show can0 2>/dev/null | grep -q "state UP"; then
     echo "[marine] can0: UP"
 else
-    echo "[marine] WARNING: can0 is not UP — CAN bus data will not be received"
+    # Informational only: the host unit (marine-stack.service) waits for can0.
+    # On a bench without a CAN interface this is expected.
+    echo "[marine] NOTE: can0 is not UP — CAN bus data will not be received until it is"
 fi
 
 # ── Helpers ─────────────────────────────────────────────────────────────────

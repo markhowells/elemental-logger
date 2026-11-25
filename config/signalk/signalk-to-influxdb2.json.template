@@ -1,0 +1,37 @@
+{
+  "enabled": true,
+  "enableLogging": false,
+  "enableDebug": "INFLUX_PLUGIN_DEBUG_PLACEHOLDER",
+  "configuration": {
+    "outputDailyLog": false,
+    "influxes": [
+      {
+        "url": "http://localhost:8086",
+        "token": "INFLUXDB_TOKEN_PLACEHOLDER",
+        "org": "INFLUXDB_ORG_PLACEHOLDER",
+        "bucket": "INFLUXDB_BUCKET_PLACEHOLDER",
+        "onlySelf": true,
+        "filteringRules": [
+          {
+            "allow": true
+          }
+        ],
+        "ignoredPaths": "INFLUX_IGNORED_PATHS_PLACEHOLDER",
+        "ignoredSources": [],
+        "useSKTimestamp": false,
+        "resolution": "INFLUX_RESOLUTION_MS_PLACEHOLDER",
+        "tagPaths": [],
+        "sailInventoryTag": {
+          "enabled": true,
+          "tagName": "sail_config",
+          "defaultValue": "unknown"
+        },
+        "consolidatedMeasurement": "instruments",
+        "writeOptions": {
+          "batchSize": 1000,
+          "flushInterval": 10000
+        }
+      }
+    ]
+  }
+}

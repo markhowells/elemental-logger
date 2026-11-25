@@ -1,0 +1,6 @@
+# Pinned source of the signalk-to-influxdb2 plugin baked into the image.
+# repo and ref (commit SHA, never a moving branch). Bump via the plugin-sync workflow / PR.
+PLUGIN_REPO=markhowells/signalk-to-influxdb2
+PLUGIN_REF=c8e96ed5a791b47963a44b598e834016e9de8d5c
+# Base image: the version currently running on the boat (v2.26.0, Node 24).
+SIGNALK_BASE=signalk/signalk-server:v2.26.0@sha256:f35edd14a514643bba8cdb5bb142eef38780d50cbb17107c49ec32efa1ab6ea8

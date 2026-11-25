@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# marine-doctor — read-only health and drift report.
+#
+#   marine-doctor            human-readable report; exit 1 if any FAIL
+#   marine-doctor --json     also write status.json for the landing page (needs write access)
+#
+# It never changes the system. Run it any time, especially after a boat trip.
+set -uo pipefail
+
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+ROOT="${MARINE_ROOT:-$(dirname "$(dirname "$SELF")")}"
+ENV_FILE="${MARINE_ENV:-/etc/marine/marine.env}"
+STATE="${MARINE_STATE_DIR:-/var/lib/marine}"
+OUT="$STATE/rendered"
+WRITE_JSON=0; [[ "${1:-}" == "--json" ]] && WRITE_JSON=1
+
+RESULTS=()   # level|name|detail
+fails=0
+add() {  # add LEVEL name detail
+    RESULTS+=("$1|$2|$3")
+    [[ "$1" == FAIL ]] && fails=$((fails + 1))
+}
+
+# env file (parsed as data, like render.py)
+getenv() { grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-; }
+
+# ── 1. configuration ─────────────────────────────────────────────────────────
+if [[ ! -r "$ENV_FILE" ]]; then
+    add FAIL "marine.env" "$ENV_FILE not readable (run as root?)"
+else
+    perms="$(stat -c %a "$ENV_FILE")"
+    [[ "$perms" == "600" ]] && add OK "marine.env permissions" "0600" || add WARN "marine.env permissions" "mode $perms (should be 600)"
+    if msg="$(python3 -I "$ROOT/deploy/lib/render.py" --env "$ENV_FILE" --images "$ROOT/deploy/images.env" --config "$ROOT/config" --check 2>&1)"; then
+        add OK "config renders" "marine.env valid, all templates render"
+    else
+        add FAIL "config renders" "$(echo "$msg" | tr '\n' ' ' | cut -c1-160)"
+    fi
+fi
+
+# ── 2. drift: live config vs what the release would render ────────────────────────
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx signalk && [[ -f "$OUT/signalk/plugin-config-data/signalk-to-influxdb2.json" ]]; then
+    live="$(docker exec signalk cat /home/node/.signalk/plugin-config-data/signalk-to-influxdb2.json 2>/dev/null)"
+    if [[ "$(printf '%s' "$live" | python3 -I -c 'import json,sys; print(json.dumps(json.load(sys.stdin),sort_keys=True))' 2>/dev/null)" == \
+          "$(python3 -I -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])),sort_keys=True))' "$OUT/signalk/plugin-config-data/signalk-to-influxdb2.json")" ]]; then
+        add OK "plugin config drift" "live == rendered"
+    else
+        lo="$(printf '%s' "$live" | python3 -I -c 'import json,sys; i=json.load(sys.stdin)["configuration"]["influxes"][0]; print(i.get("org"),"/",i.get("bucket"))' 2>/dev/null || echo '?')"
+        add FAIL "plugin config drift" "live plugin config differs from rendered (live writes to: $lo). Run marine-apply."
+    fi
+    tmpd="$(docker exec signalk sh -c 'cp /home/node/.signalk/settings.json /tmp/s.json && merge-settings /marine-config/settings.managed.json /tmp/s.json' 2>&1)"
+    if grep -q 'already in sync' <<<"$tmpd"; then
+        add OK "settings drift" "managed keys in sync"
+    else
+        add WARN "settings drift" "$(echo "$tmpd" | tr '\n' ';' | cut -c1-160)"
+    fi
+else
+    add WARN "drift check" "signalk container not running or nothing rendered yet"
+fi
+
+# ── 3. services ──────────────────────────────────────────────────────────────────
+curl -sf --max-time 5 http://localhost:8086/health | grep -q '"status":"pass"' && add OK "InfluxDB" "healthy" || add FAIL "InfluxDB" "not healthy on :8086"
+curl -sf --max-time 5 http://localhost:3000/signalk >/dev/null && add OK "SignalK" "responding on :3000" || add FAIL "SignalK" "not responding on :3000"
+if curl -s -o /dev/null --max-time 5 http://localhost:80/; then add OK "Landing page" "Caddy answers on :80"; else add WARN "Landing page" "nothing on :80 (Caddy not running?)"; fi
+
+# Destination bucket exists and recent data is arriving (token passed via a 0600 header file, not argv)
+if [[ -r "$ENV_FILE" ]]; then
+    org="$(getenv INFLUXDB_ORG)"; bucket="$(getenv INFLUXDB_BUCKET)"; token="$(getenv INFLUXDB_TOKEN)"
+    hdr="$(mktemp)"; chmod 600 "$hdr"; printf 'Authorization: Token %s\n' "$token" > "$hdr"
+    n="$(curl -sf --max-time 8 -H @"$hdr" -G "http://localhost:8086/api/v2/buckets" --data-urlencode "org=$org" --data-urlencode "name=$bucket" 2>/dev/null | python3 -I -c 'import json,sys; print(len(json.load(sys.stdin).get("buckets",[])))' 2>/dev/null || echo 0)"
+    if [[ "$n" == "1" ]]; then
+        add OK "destination bucket" "$org / $bucket exists"
+        q="from(bucket:\"$bucket\") |> range(start:-10m) |> limit(n:1) |> count()"
+        rows="$(curl -sf --max-time 20 -H @"$hdr" -H 'Content-Type: application/vnd.flux' -H 'Accept: application/csv' "http://localhost:8086/api/v2/query?org=$org" --data-binary "$q" 2>/dev/null | grep -c -E '^,_result' || true)"
+        [[ "${rows:-0}" -gt 0 ]] && add OK "recent data" "points written in the last 10 minutes" || add WARN "recent data" "no points in the last 10 minutes (expected on the bench with no CAN bus)"
+    else
+        add FAIL "destination bucket" "$org / $bucket not found (or token rejected) — check marine.env"
+    fi
+    rm -f "$hdr"
+fi
+
+# ── 4. hardware / host (the things that bit us offline) ───────────────────────────
+CANIF="$(getenv CAN_INTERFACE)"; CANIF="${CANIF:-can0}"
+if [[ "$CANIF" != "can0" ]]; then
+    add WARN "CAN interface" "TEST MODE: SignalK reads $CANIF, not can0 — run tools/canswitch.sh (choose can0) before sailing"
+fi
+ip link show "$CANIF" 2>/dev/null | grep -q -E 'state (UP|UNKNOWN)' && add OK "$CANIF" "UP" || add WARN "$CANIF" "not UP (normal on a bench without a CAN interface/bus)"
+if [[ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" == yes ]]; then
+    add OK "clock" "NTP synchronized"
+elif ls /dev/rtc* >/dev/null 2>&1 || systemctl is-enabled fake-hwclock >/dev/null 2>&1; then
+    add WARN "clock" "not NTP-synced (offline) — clock restored from RTC/fake-hwclock, may be hours/days off"
+else
+    add FAIL "clock" "not synced and no RTC or fake-hwclock: offline boots start from the last NTP sync (data gets wrong timestamps)"
+fi
+if ls /dev/rtc* >/dev/null 2>&1; then add OK "RTC" "present"; elif systemctl is-enabled fake-hwclock >/dev/null 2>&1; then add WARN "RTC" "no hardware RTC; fake-hwclock in use"; else add WARN "RTC" "none"; fi
+if [[ -d /var/log/journal ]] && journalctl --list-boots 2>/dev/null | wc -l | grep -qv '^[01]$'; then
+    add OK "persistent journal" "$(journalctl --list-boots 2>/dev/null | wc -l) boots recorded"
+elif [[ -d /var/log/journal ]]; then
+    add WARN "persistent journal" "enabled, only the current boot recorded so far"
+else
+    add FAIL "persistent journal" "/var/log/journal missing: failed boots leave no evidence"
+fi
+thr="$(vcgencmd get_throttled 2>/dev/null | cut -d= -f2)"
+if [[ -n "$thr" ]]; then
+    [[ "$thr" == 0x0 ]] && add OK "power" "no undervoltage/throttling since boot" || add WARN "power" "get_throttled=$thr (0x1/0x10000 = undervoltage)"
+fi
+free_pct="$(df --output=pcent / | tail -1 | tr -dc 0-9)"
+[[ "${free_pct:-0}" -lt 90 ]] && add OK "disk" "${free_pct}% used" || add WARN "disk" "${free_pct}% used"
+
+# ── report ───────────────────────────────────────────────────────────────────────
+for r in "${RESULTS[@]}"; do
+    IFS='|' read -r lvl name detail <<<"$r"
+    printf '%-5s %-22s %s\n' "$lvl" "$name" "$detail"
+done
+echo "--- $fails failure(s)"
+
+if [[ $WRITE_JSON -eq 1 && -d "$OUT/landing" ]]; then
+    printf '%s\n' "${RESULTS[@]}" | python3 -I -c '
+import json,sys,datetime
+lv={"OK":"ok","WARN":"warn","FAIL":"fail"}
+checks=[]
+for l in sys.stdin:
+    a=l.rstrip("\n").split("|",2)
+    if len(a)==3: checks.append({"level":lv[a[0]],"name":a[1],"detail":a[2]})
+print(json.dumps({"generated":datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),"checks":checks},indent=1))
+' > "$OUT/landing/status.json.tmp" && mv "$OUT/landing/status.json.tmp" "$OUT/landing/status.json"
+fi
+[[ $fails -eq 0 ]]

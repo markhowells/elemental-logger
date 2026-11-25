@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# marine-apply — render all managed config from the release templates + /etc/marine/marine.env
+# and make the running system match it. Idempotent; safe to run any time.
+#
+#   marine-apply                 render, install host files, (re)start what changed, health-check
+#   marine-apply --render-only   render into the state dir and stop (no root, no docker)
+#   marine-apply --check         validate marine.env and templates only
+#
+# Environment overrides (mainly for tests/CI):
+#   MARINE_ENV         marine.env path             (default /etc/marine/marine.env)
+#   MARINE_STATE_DIR   state dir                   (default /var/lib/marine)
+#   MARINE_ROOT        dir containing deploy/ config/ (default: parent of this script's dir)
+set -euo pipefail
+
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+ROOT="${MARINE_ROOT:-$(dirname "$(dirname "$SELF")")}"
+ENV_FILE="${MARINE_ENV:-/etc/marine/marine.env}"
+STATE="${MARINE_STATE_DIR:-/var/lib/marine}"
+OUT="$STATE/rendered"
+VERSION="$(cat "$ROOT/VERSION" 2>/dev/null || echo dev)"
+
+MODE=apply
+case "${1:-}" in
+    --render-only) MODE=render ;;
+    --check)       MODE=check ;;
+    "" )           ;;
+    *) echo "usage: marine-apply [--render-only|--check]" >&2; exit 2 ;;
+esac
+
+log()  { echo "marine-apply: $*"; }
+fail() { echo "marine-apply: ERROR: $*" >&2; exit 1; }
+
+[[ -f "$ENV_FILE" ]] || fail "$ENV_FILE not found (copy marine.env.example and fill it in)"
+if [[ "$MODE" == apply && $EUID -ne 0 ]]; then fail "run as root: sudo marine-apply"; fi
+
+RENDER=(python3 -I "$ROOT/deploy/lib/render.py" --env "$ENV_FILE" --images "$ROOT/deploy/images.env" --config "$ROOT/config")
+
+if [[ "$MODE" == check ]]; then
+    "${RENDER[@]}" --check
+    exit 0
+fi
+
+mkdir -p "$OUT"
+chmod 750 "$STATE" "$OUT" 2>/dev/null || true
+OLD_SUMS="$(cat "$OUT/SHA256SUMS" 2>/dev/null || true)"
+"${RENDER[@]}" --out "$OUT" --version "$VERSION"
+NEW_SUMS="$(cat "$OUT/SHA256SUMS")"
+
+changed() {  # changed <path-prefix>: did any rendered file under it change?
+    local p="$1" a b
+    a="$(printf '%s\n' "$OLD_SUMS" | grep -F "  $p" | sort || true)"
+    b="$(printf '%s\n' "$NEW_SUMS" | grep -F "  $p" | sort || true)"
+    [[ "$a" != "$b" ]]
+}
+
+[[ "$MODE" == render ]] && { log "rendered to $OUT (render-only)"; exit 0; }
+
+# ── host files ────────────────────────────────────────────────────────────────
+restart_hostapd=0; restart_dnsmasq=0
+if changed hostapd.conf || ! cmp -s "$OUT/hostapd.conf" /etc/hostapd/hostapd.conf 2>/dev/null; then
+    install -D -m 0600 "$OUT/hostapd.conf" /etc/hostapd/hostapd.conf
+    sed -i 's|^#\?DAEMON_CONF=.*|DAEMON_CONF=/etc/hostapd/hostapd.conf|' /etc/default/hostapd 2>/dev/null || true
+    restart_hostapd=1
+fi
+if changed dnsmasq.conf || ! cmp -s "$OUT/dnsmasq.conf" /etc/dnsmasq.d/marine.conf 2>/dev/null; then
+    install -D -m 0644 "$OUT/dnsmasq.conf" /etc/dnsmasq.d/marine.conf
+    restart_dnsmasq=1
+fi
+if ! cmp -s "$ROOT/config/can0.network" /etc/systemd/network/can0.network 2>/dev/null; then
+    install -D -m 0644 "$ROOT/config/can0.network" /etc/systemd/network/can0.network
+    systemctl restart systemd-networkd || true
+fi
+units_changed=0
+for u in "$ROOT"/deploy/systemd/*.service "$ROOT"/deploy/systemd/*.timer; do
+    [[ -f "$u" ]] || continue
+    if ! cmp -s "$u" "/etc/systemd/system/$(basename "$u")" 2>/dev/null; then
+        install -D -m 0644 "$u" "/etc/systemd/system/$(basename "$u")"
+        units_changed=1
+    fi
+done
+[[ $units_changed -eq 1 ]] && systemctl daemon-reload
+
+# ── containers ──────────────────────────────────────────────────────────────────
+COMPOSE=(docker compose --env-file "$OUT/compose.env" -f "$ROOT/deploy/docker-compose.yml")
+log "starting/updating stack"
+"${COMPOSE[@]}" up -d
+
+# Containers read their config at start. If a rendered file changed but compose saw no
+# change in the service definition, the container was not recreated: restart it.
+if changed signalk/; then log "SignalK managed config changed -> restarting signalk"; docker restart signalk >/dev/null; fi
+if changed caddy/ || changed landing/; then log "Caddy config changed -> restarting caddy"; docker restart caddy >/dev/null; fi
+[[ $restart_hostapd -eq 1 ]] && { systemctl restart hostapd || log "WARN: hostapd failed to restart"; }
+[[ $restart_dnsmasq -eq 1 ]] && { systemctl restart dnsmasq || log "WARN: dnsmasq failed to restart"; }
+
+# ── health check ───────────────────────────────────────────────────────────────
+ok_influx=0; ok_signalk=0
+for _ in $(seq 1 45); do
+    curl -sf http://localhost:8086/health | grep -q '"status":"pass"' && ok_influx=1
+    curl -sf http://localhost:3000/signalk >/dev/null && ok_signalk=1
+    [[ $ok_influx -eq 1 && $ok_signalk -eq 1 ]] && break
+    sleep 2
+done
+[[ $ok_influx -eq 1 ]] || fail "InfluxDB did not become healthy (docker logs influxdb)"
+[[ $ok_signalk -eq 1 ]] || fail "SignalK did not respond (docker logs signalk)"
+
+printf '{"version":"%s","applied":"%s"}\n' "$VERSION" "$(date -u +%FT%TZ)" > "$STATE/applied.json"
+log "OK (release $VERSION)"

@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for and stage a new marine release (no-op when offline)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/marine-update --auto
+# Never fail the boot/target because the Internet isn't there.
+SuccessExitStatus=0 1
