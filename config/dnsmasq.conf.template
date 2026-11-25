@@ -1,0 +1,15 @@
+interface=wlan0
+bind-interfaces
+dhcp-range=10.42.0.10,10.42.0.100,255.255.255.0,24h
+dhcp-option=3,10.42.0.1
+dhcp-option=6,10.42.0.1
+# Wildcard: DOMAIN_PLACEHOLDER and every subdomain (signalk., influx., portainer.) resolve to the Pi.
+address=/DOMAIN_PLACEHOLDER/10.42.0.1
+# Legacy names, kept for a transition period. .local clashes with mDNS (Avahi runs on the Pi)
+# and is unreliable on Android; prefer the DOMAIN_PLACEHOLDER names.
+address=/marine.local/10.42.0.1
+address=/signalk.local/10.42.0.1
+address=/influxdb.local/10.42.0.1
+no-resolv
+server=8.8.8.8
+except-interface=eth0

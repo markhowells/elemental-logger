@@ -1,0 +1,16 @@
+[Unit]
+Description=Portainer CE
+Requires=docker.service
+After=docker.service
+ConditionPathExists=/var/lib/marine/rendered/compose.env
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/marine/current
+ExecStart=/usr/bin/docker compose --env-file /var/lib/marine/rendered/compose.env -f /opt/marine/current/deploy/portainer.yml up -d
+ExecStop=/usr/bin/docker compose --env-file /var/lib/marine/rendered/compose.env -f /opt/marine/current/deploy/portainer.yml down
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

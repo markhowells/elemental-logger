@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VESSEL_NAME_PLACEHOLDER — instruments</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+  body { max-width: 34rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { margin-bottom: .2rem; }
+  .sub { opacity: .7; margin-top: 0; }
+  a.card { display: block; padding: .9rem 1rem; margin: .6rem 0; border: 1px solid #8884;
+           border-radius: .6rem; text-decoration: none; color: inherit; }
+  a.card:hover { border-color: #08f; }
+  a.card b { display: block; }
+  a.card span { opacity: .7; font-size: .9rem; }
+  #status { margin-top: 1.5rem; font-size: .9rem; }
+  .ok { color: #1a7f37; } .warn { color: #b26a00; } .fail { color: #c62828; }
+  footer { margin-top: 2rem; opacity: .6; font-size: .8rem; }
+</style>
+</head>
+<body>
+<h1>VESSEL_NAME_PLACEHOLDER</h1>
+<p class="sub">Instrument data logger</p>
+
+<a class="card" href="URL_SCHEME_PLACEHOLDERsignalk.DOMAIN_PLACEHOLDER/"><b>SignalK</b><span>Live instrument data and dashboards</span></a>
+<a class="card" href="URL_SCHEME_PLACEHOLDERinflux.DOMAIN_PLACEHOLDER/"><b>InfluxDB</b><span>Logged history and queries</span></a>
+<a class="card" href="URL_SCHEME_PLACEHOLDERportainer.DOMAIN_PLACEHOLDER/"><b>Portainer</b><span>Containers and logs</span></a>
+
+<div id="status">Checking status…</div>
+
+<footer>Release VERSION_PLACEHOLDER · <a href="status.json">status.json</a></footer>
+
+<script>
+fetch('status.json', {cache: 'no-store'}).then(r => r.json()).then(s => {
+  const el = document.getElementById('status');
+  el.innerHTML = '<b>Status</b> <small>(' + (s.generated || '?') + ')</small><ul>' +
+    (s.checks || []).map(c => '<li class="' + c.level + '">' + c.name + ': ' + c.detail + '</li>').join('') + '</ul>';
+}).catch(() => { document.getElementById('status').textContent = 'No status available yet.'; });
+</script>
+</body>
+</html>

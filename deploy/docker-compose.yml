@@ -1,0 +1,78 @@
+# Marine stack (SignalK + InfluxDB + Caddy). Static file: all variable parts come from
+# the rendered env file (see deploy/lib/render.py), never from sed:
+#
+#   docker compose --env-file /var/lib/marine/rendered/compose.env \
+#       -f /opt/marine/current/deploy/docker-compose.yml up -d
+#
+# IMPORTANT — project and volume names are pinned.
+# The original install ran from a directory called "pi", so Compose created
+# pi_signalk_data, pi_influxdb_data, pi_influxdb_config and the pi_marine_net
+# network. Moving this file must NOT create new empty volumes (that would look
+# exactly like losing all the data), so the names are fixed explicitly.
+name: pi
+
+networks:
+  marine_net:
+    name: pi_marine_net
+    driver: bridge
+
+services:
+  signalk:
+    image: ${SIGNALK_IMAGE:?SIGNALK_IMAGE is not set}
+    container_name: signalk
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - signalk_data:/home/node/.signalk
+      # Managed config, rendered by marine-apply. Applied by the entrypoint on every start.
+      - ${MARINE_RENDERED:?MARINE_RENDERED is not set}/signalk:/marine-config:ro
+
+  influxdb:
+    image: ${INFLUXDB_IMAGE:?INFLUXDB_IMAGE is not set}
+    container_name: influxdb
+    restart: unless-stopped
+    networks:
+      - marine_net
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+    # The INIT_* values only matter on the very first start of an EMPTY data volume.
+    # On an existing volume InfluxDB skips setup, so they cannot change org/bucket/token.
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUXDB_USERNAME}
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_PASSWORD}
+      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_ORG}
+      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_BUCKET}
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_TOKEN}
+      - DOCKER_INFLUXDB_INIT_RETENTION=0
+
+  caddy:
+    image: ${CADDY_IMAGE:?CADDY_IMAGE is not set}
+    container_name: caddy
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      # Directory mounts (not single files): marine-apply replaces files atomically, and a
+      # single-file bind mount would keep pointing at the old inode.
+      - ${MARINE_RENDERED}/caddy:/etc/caddy:ro
+      - ${MARINE_RENDERED}/landing:/srv/landing:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  signalk_data:
+    name: pi_signalk_data
+  influxdb_data:
+    name: pi_influxdb_data
+  influxdb_config:
+    name: pi_influxdb_config
+  caddy_data:
+    name: pi_caddy_data
+  caddy_config:
+    name: pi_caddy_config

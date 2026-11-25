@@ -1,0 +1,66 @@
+# Tag vX.Y.Z -> build + push the image, pin it by digest in a release bundle, and publish the
+# bundle + manifest (the feed the Pi's marine-update polls) to GitHub Pages.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  image:
+    uses: ./.github/workflows/build-image.yml
+    with:
+      push: true
+      tags: |
+        ${{ github.ref_name }}
+        latest
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  publish:
+    needs: image
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the release bundle with the image pinned by digest
+        env:
+          IMAGE: ${{ vars.DOCKERHUB_NAMESPACE }}/elemental-signalk
+          DIGEST: ${{ needs.image.outputs.digest }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          test -n "$DIGEST"
+          sed -i "s|^SIGNALK_IMAGE=.*|SIGNALK_IMAGE=${IMAGE}@${DIGEST}|" deploy/images.env
+          echo "${VERSION#v}" > VERSION
+          mkdir -p site/releases
+          tar -czf "site/releases/marine-${VERSION#v}.tar.gz" \
+              deploy config images/signalk/plugin.version marine.env.example VERSION
+          sha="$(sha256sum "site/releases/marine-${VERSION#v}.tar.gz" | cut -d' ' -f1)"
+          base="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
+          printf '{"version":"%s","bundle_url":"%s/releases/marine-%s.tar.gz","bundle_sha256":"%s"}\n' \
+              "${VERSION#v}" "$base" "${VERSION#v}" "$sha" > site/releases/latest.json
+          cp -r docs site/docs
+          cat > site/index.html <<HTML
+          <!doctype html><meta charset=utf-8><title>Elemental logger</title>
+          <h1>Elemental logger</h1><p>Latest release: <b>${VERSION#v}</b></p>
+          <p>To install: download the release bundle, extract it, and run <code>sudo ./deploy/install.sh</code>.</p>
+          <ul><li><a href="releases/latest.json">releases/latest.json</a> (feed used by marine-update)</li>
+          <li><a href="docs/boat-checklist.md">Boat checklist</a></li>
+          <li><a href="docs/config-model.md">Config model</a></li></ul>
+          HTML
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: site/releases/*.tar.gz
+          generate_release_notes: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

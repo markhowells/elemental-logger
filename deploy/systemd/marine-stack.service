@@ -1,0 +1,27 @@
+[Unit]
+Description=Marine Stack (SignalK + InfluxDB + Caddy)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/var/lib/marine/rendered/compose.env
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/marine/current
+# Give can0 up to 30 s, but never block logging on it: a missing bus must not stop InfluxDB/SignalK
+# from starting (the leading '-' ignores a non-zero exit).
+ExecStartPre=-/bin/bash -c '\
+  for i in $(seq 1 30); do \
+    ip link show can0 2>/dev/null | grep -q "state UP" && exit 0; \
+    echo "marine-stack: waiting for can0 ($i/30)..."; \
+    sleep 1; \
+  done; \
+  echo "marine-stack: can0 not UP after 30s — starting anyway"; \
+  exit 1'
+ExecStart=/usr/bin/docker compose --env-file /var/lib/marine/rendered/compose.env -f /opt/marine/current/deploy/docker-compose.yml up -d
+ExecStop=/usr/bin/docker compose --env-file /var/lib/marine/rendered/compose.env -f /opt/marine/current/deploy/docker-compose.yml down
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

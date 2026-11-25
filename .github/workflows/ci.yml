@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y shellcheck
+          shellcheck -x deploy/marine-apply deploy/marine-doctor deploy/marine-update deploy/install.sh \
+            images/signalk/docker-entrypoint.sh tools/*.sh tests/run.sh setup.sh
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: images/signalk/Dockerfile
+          ignore: DL3008,DL3059
+      - name: Unit tests (renderer, settings merge, updater)
+        run: tests/run.sh
+      - name: Compose files validate with rendered values
+        run: |
+          python3 -I deploy/lib/render.py --env tests/fixtures/test.env --images deploy/images.env --config config --out /tmp/r
+          docker compose --env-file /tmp/r/compose.env -f deploy/docker-compose.yml config -q
+          docker compose --env-file /tmp/r/compose.env -f deploy/portainer.yml config -q
+
+  build:
+    uses: ./.github/workflows/build-image.yml
+    with:
+      push: ${{ github.event_name == 'push' }}
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  smoke:
+    needs: [lint-and-test, build]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: image-amd64
+      - run: docker load -i image.tar
+      - run: sudo apt-get update -qq && sudo apt-get install -y can-utils
+      - name: End-to-end (vcan -> SignalK -> InfluxDB)
+        run: |
+          SIGNALK_IMAGE=elemental-signalk:ci tools/smoke-test.sh
