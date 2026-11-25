@@ -13,7 +13,7 @@
 #       --build-arg SIGNALK_BASE --build-arg PLUGIN_REPO --build-arg PLUGIN_REF \
 #       -t elemental-signalk:dev images/signalk
 ARG SIGNALK_BASE
-# hadolint ignore=DL3006  (pinned by tag+digest via plugin.version)
+# Base is pinned by tag+digest via plugin.version (hence DL3006 is ignored in CI).
 FROM ${SIGNALK_BASE}
 
 ARG PLUGIN_REPO
