@@ -158,11 +158,22 @@ def subst_json(node, typed, vals, where):
     return node
 
 
-def write(path, data, mode=0o640):
+def write(path, data, mode=0o640, gid=None):
+    """Write atomically. gid: group that must be able to read the file (the container user's group).
+
+    As root the file is chgrp'd to gid and keeps `mode`. When not root (tests, CI) chgrp is not
+    possible, so a group-restricted file is made world-readable instead; that is acceptable only
+    because a non-root render is never a real deployment.
+    """
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         fh.write(data)
+    if gid is not None:
+        if os.geteuid() == 0:
+            os.chown(tmp, 0, gid)
+        else:
+            mode |= 0o004
     os.chmod(tmp, mode)
     os.replace(tmp, path)
 
@@ -173,6 +184,8 @@ def main():
     ap.add_argument("--images", required=True, help="images.env with pinned image references")
     ap.add_argument("--config", required=True, help="directory holding the templates")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--container-gid", type=int, default=1000,
+                    help="gid of the SignalK container user (node); signalk/* files are made readable by it")
     ap.add_argument("--version", default="dev")
     ap.add_argument("--check", action="store_true", help="validate and render in memory only")
     args = ap.parse_args()
@@ -243,7 +256,8 @@ def main():
 
     sums = []
     for rel, (content, mode) in sorted(outputs.items()):
-        write(os.path.join(args.out, rel), content, mode)
+        write(os.path.join(args.out, rel), content, mode,
+              gid=args.container_gid if rel.startswith("signalk/") else None)
         sums.append(f"{hashlib.sha256(content.encode()).hexdigest()}  {rel}\n")
     write(os.path.join(args.out, "SHA256SUMS"), "".join(sums), 0o644)
     print(f"Rendered {len(outputs)} files to {args.out}")

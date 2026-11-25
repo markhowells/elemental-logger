@@ -20,6 +20,8 @@ check "special characters in secrets survive (compose.env, hostapd)" \
   "grep -qF 'INFLUXDB_PASSWORD=influx-pass-\"quoted\"-\\back' $T/r1/compose.env && grep -qF 'wpa_passphrase=wifi-pass-with-&-and-|-chars' $T/r1/hostapd.conf"
 check "no unresolved placeholders anywhere" "! grep -r PLACEHOLDER $T/r1"
 check "secrets files are not world-readable" "[ \"\$(stat -c %a $T/r1/compose.env)\" = 600 ] && [ \"\$(stat -c %a $T/r1/hostapd.conf)\" = 600 ]"
+check "signalk config files are readable by the container user (other-read when not root)" \
+  "[ \$(( 0\$(stat -c %a $T/r1/signalk/settings.managed.json) & 4 )) -eq 4 ] && [ \$(( 0\$(stat -c %a $T/r1/signalk/plugin-config-data/signalk-to-influxdb2.json) & 4 )) -eq 4 ]"
 check "Caddyfile http mode by default" "grep -q '^http://elemental.internal' $T/r1/caddy/Caddyfile && grep -q 'auto_https off' $T/r1/caddy/Caddyfile"
 check "dnsmasq wildcard for the domain" "grep -q '^address=/elemental.internal/10.42.0.1' $T/r1/dnsmasq.conf"
 

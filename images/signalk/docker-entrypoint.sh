@@ -37,14 +37,22 @@ if [ -d "$MANAGED" ]; then
                     "$DATA/plugin-config-data/signalk-to-influxdb2.json"; then
             echo "[marine] DRIFT: live InfluxDB plugin config differed from managed config — overwriting"
         fi
-        cp "$MANAGED/plugin-config-data/signalk-to-influxdb2.json" \
-           "$DATA/plugin-config-data/signalk-to-influxdb2.json"
-        echo "[marine] Applied managed InfluxDB plugin config"
+        if cp "$MANAGED/plugin-config-data/signalk-to-influxdb2.json" \
+              "$DATA/plugin-config-data/signalk-to-influxdb2.json"; then
+            echo "[marine] Applied managed InfluxDB plugin config"
+        else
+            echo "[marine] ERROR: could not apply the managed InfluxDB plugin config (permissions on $MANAGED?) — InfluxDB logging will NOT work"
+        fi
     else
         echo "[marine] WARNING: no managed plugin config in $MANAGED — keeping existing"
     fi
     if [ -f "$MANAGED/settings.managed.json" ]; then
-        merge-settings "$MANAGED/settings.managed.json" "$DATA/settings.json" | sed 's/^/[marine] /'
+        _ms_out="$(merge-settings "$MANAGED/settings.managed.json" "$DATA/settings.json" 2>&1)"
+        _ms_rc=$?
+        [ -n "$_ms_out" ] && echo "$_ms_out" | sed 's/^/[marine] /'
+        if [ "$_ms_rc" -ne 0 ]; then
+            echo "[marine] ERROR: merge-settings failed (exit $_ms_rc) — SignalK may start with unmanaged settings"
+        fi
     else
         echo "[marine] WARNING: no managed settings in $MANAGED — keeping existing"
     fi
