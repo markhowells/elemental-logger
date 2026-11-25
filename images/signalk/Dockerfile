@@ -13,22 +13,23 @@
 #       --build-arg SIGNALK_BASE --build-arg PLUGIN_REPO --build-arg PLUGIN_REF \
 #       -t elemental-signalk:dev images/signalk
 ARG SIGNALK_BASE
+# hadolint ignore=DL3006  (pinned by tag+digest via plugin.version)
 FROM ${SIGNALK_BASE}
 
 ARG PLUGIN_REPO
 ARG PLUGIN_REF
 
-RUN test -n "${PLUGIN_REPO}" && test -n "${PLUGIN_REF}" \
-    || { echo "PLUGIN_REPO and PLUGIN_REF build args are required (see plugin.version)" >&2; exit 1; }
+RUN if [ -z "${PLUGIN_REPO}" ] || [ -z "${PLUGIN_REF}" ]; then \
+        echo "PLUGIN_REPO and PLUGIN_REF build args are required (see plugin.version)" >&2; exit 1; \
+    fi
 
 # Install and build the plugin from an immutable commit, then stash a copy
 # outside the volume mount point; the entrypoint syncs it into the volume on
 # every start so image rebuilds always take effect.
 RUN npm install --prefix /home/node/.signalk \
         "https://github.com/${PLUGIN_REPO}/archive/${PLUGIN_REF}.tar.gz" && \
-    cd /home/node/.signalk/node_modules/signalk-to-influxdb2 && \
-    npm install --include=dev && \
-    npm run build && \
+    npm install --prefix /home/node/.signalk/node_modules/signalk-to-influxdb2 --include=dev && \
+    npm run build --prefix /home/node/.signalk/node_modules/signalk-to-influxdb2 && \
     mkdir -p /home/node/.signalk-defaults/node_modules && \
     cp -r /home/node/.signalk/node_modules/signalk-to-influxdb2 \
         /home/node/.signalk-defaults/node_modules/signalk-to-influxdb2
