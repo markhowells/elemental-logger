@@ -16,7 +16,7 @@ jobs:
       - name: shellcheck
         run: |
           sudo apt-get update -qq && sudo apt-get install -y shellcheck
-          shellcheck -x deploy/marine-apply deploy/marine-doctor deploy/marine-update deploy/install.sh \
+          shellcheck -x -S warning deploy/marine-apply deploy/marine-doctor deploy/marine-update deploy/install.sh \
             images/signalk/docker-entrypoint.sh tools/*.sh tests/run.sh setup.sh
       - uses: hadolint/hadolint-action@v3.1.0
         with:

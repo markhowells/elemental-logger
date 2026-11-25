@@ -115,6 +115,10 @@ case "$ACTION" in
     --check) do_check || true; exit 0 ;;
     --stage) do_check && do_stage || true ;;
     --apply) do_apply ;;
-    --auto)  if do_check; then do_stage && { [[ "$AUTO_APPLY" == yes ]] && do_apply || log "staged; AUTO_APPLY=no — apply with: marine-update --apply"; } ; fi; exit 0 ;;
+    --auto)
+        if do_check && do_stage; then
+            if [[ "$AUTO_APPLY" == yes ]]; then do_apply; else log "staged; AUTO_APPLY=no — apply with: marine-update --apply"; fi
+        fi
+        exit 0 ;;
     "")      if do_check; then do_stage && do_apply; fi ;;
 esac

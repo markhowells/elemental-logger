@@ -2,7 +2,7 @@
 # Unit tests for the deploy tooling. No Docker, no root, no network:
 #   tests/run.sh
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 pass=0; failn=0
 ok()   { echo "  ok   $1"; pass=$((pass+1)); }
