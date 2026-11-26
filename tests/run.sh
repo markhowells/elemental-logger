@@ -22,6 +22,9 @@ check "no unresolved placeholders anywhere" "! grep -r PLACEHOLDER $T/r1"
 check "secrets files are not world-readable" "[ \"\$(stat -c %a $T/r1/compose.env)\" = 600 ] && [ \"\$(stat -c %a $T/r1/hostapd.conf)\" = 600 ]"
 check "signalk config files are readable by the container user (other-read when not root)" \
   "[ \$(( 0\$(stat -c %a $T/r1/signalk/settings.managed.json) & 4 )) -eq 4 ] && [ \$(( 0\$(stat -c %a $T/r1/signalk/plugin-config-data/signalk-to-influxdb2.json) & 4 )) -eq 4 ]"
+check "--check validates without --out (as install.sh and marine-doctor call it)" \
+  "${RENDER[*]} --env tests/fixtures/test.env --check"
+check "rendering without --out or --check is refused" "! ${RENDER[*]} --env tests/fixtures/test.env"
 check "Caddyfile http mode by default" "grep -q '^http://elemental.internal' $T/r1/caddy/Caddyfile && grep -q 'auto_https off' $T/r1/caddy/Caddyfile"
 check "dnsmasq wildcard for the domain" "grep -q '^address=/elemental.internal/10.42.0.1' $T/r1/dnsmasq.conf"
 
@@ -83,5 +86,15 @@ rm -rf "$T/state/staged/2.0.0"; $U --stage >"$T/o" 2>&1; check "checksum mismatc
 mk_release 2.0.0 1; rm -rf "$T/state/staged/2.0.0"
 $U >"$T/o" 2>&1; check "failed apply rolls back to the previous release" "[ \"\$(basename \$(readlink -f $T/opt/current))\" = 1.0.0 ] && grep -q 'rolling back' $T/o && [ -f $T/state/failed/2.0.0 ]"
 $U --check >"$T/o" 2>&1; check "a release that failed is not retried automatically" "grep -q 'previously failed' $T/o"
+
+
+echo "doctor"
+mkdir -p "$T/stub"
+for c in docker curl ip timedatectl systemctl journalctl vcgencmd; do printf '#!/bin/sh\nexit 0\n' > "$T/stub/$c"; chmod +x "$T/stub/$c"; done
+cp tests/fixtures/test.env "$T/doc.env"; chmod 600 "$T/doc.env"
+PATH="$T/stub:$PATH" MARINE_ENV="$T/doc.env" MARINE_STATE_DIR="$T/docstate" deploy/marine-doctor >"$T/doc.out" 2>&1
+check "doctor reports each check exactly once" "[ -z \"\$(grep -E '^(OK|WARN|FAIL) ' $T/doc.out | cut -c7-29 | sort | uniq -d)\" ] && grep -q '^OK    marine.env permissions' $T/doc.out"
+check "marine-apply and marine-update agree on the installed-version file" \
+  "grep -q 'STATE/current.json' deploy/marine-apply && grep -q 'STATE/current.json\" version' deploy/marine-update"
 
 echo; echo "$pass passed, $failn failed"; [ "$failn" -eq 0 ]

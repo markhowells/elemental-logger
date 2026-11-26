@@ -19,6 +19,7 @@ fails=0
 add() {  # add LEVEL name detail
     RESULTS+=("$1|$2|$3")
     [[ "$1" == FAIL ]] && fails=$((fails + 1))
+    return 0   # callers use 'test && add OK … || add WARN …', so add must always succeed
 }
 
 # env file (parsed as data, like render.py)

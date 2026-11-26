@@ -103,5 +103,5 @@ done
 [[ $ok_influx -eq 1 ]] || fail "InfluxDB did not become healthy (docker logs influxdb)"
 [[ $ok_signalk -eq 1 ]] || fail "SignalK did not respond (docker logs signalk)"
 
-printf '{"version":"%s","applied":"%s"}\n' "$VERSION" "$(date -u +%FT%TZ)" > "$STATE/applied.json"
+printf '{"version":"%s","applied":"%s"}\n' "$VERSION" "$(date -u +%FT%TZ)" > "$STATE/current.json"   # marine-update compares this with the feed
 log "OK (release $VERSION)"
