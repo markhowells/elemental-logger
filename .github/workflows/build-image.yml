@@ -38,7 +38,7 @@ jobs:
             runner: ubuntu-24.04-arm   # native arm64: no QEMU. If unavailable for your account, use ubuntu-latest + docker/setup-qemu-action.
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Load pinned versions
         run: |
           set -a; . images/signalk/plugin.version; set +a
