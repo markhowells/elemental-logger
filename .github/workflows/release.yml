@@ -1,5 +1,7 @@
 # Tag vX.Y.Z -> build + push the image, pin it by digest in a release bundle, and publish the
 # bundle + manifest (the feed the Pi's marine-update polls) to GitHub Pages.
+# Deployment is a separate job so that a failed Pages deploy can be retried on its own
+# ("Re-run failed jobs") without rebuilding the image or changing the bundle.
 name: release
 
 on:
@@ -7,9 +9,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: read
 
 jobs:
   image:
@@ -23,12 +23,11 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
-  publish:
+  bundle:
     needs: image
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+    permissions:
+      contents: write # create the GitHub Release
     steps:
       - uses: actions/checkout@v4
       - name: Build the release bundle with the image pinned by digest
@@ -51,7 +50,27 @@ jobs:
           cat > site/index.html <<HTML
           <!doctype html><meta charset=utf-8><title>Elemental logger</title>
           <h1>Elemental logger</h1><p>Latest release: <b>${VERSION#v}</b></p>
-          <p>To install: download the release bundle, extract it, and run <code>sudo ./deploy/install.sh</code>.</p>
+          <p><a href="releases/marine-${VERSION#v}.tar.gz"><b>Download the release bundle (marine-${VERSION#v}.tar.gz)</b></a><br>
+          SHA-256: <code>${sha}</code></p>
+          <h2>Prerequisites on the Pi</h2>
+          <ul>
+          <li>Raspberry Pi 4 Model B running 64-bit Debian 13 (trixie) / Raspberry Pi OS. Other models and releases are untested.</li>
+          <li>A CAN interface that already appears as <code>can0</code> (check with <code>ip link show can0</code>). The installer sets
+          the 250 kbps bit rate but does not enable the hardware. For an MCP2515 SPI HAT, <code>/boot/firmware/config.txt</code> needs
+          lines like these (oscillator and interrupt depend on the HAT):
+          <pre>dtparam=spi=on
+          dtoverlay=mcp2515-can0,oscillator=16000000,interrupt=23</pre></li>
+          <li>Internet over wired Ethernet while installing, and now and then for updates. The installer turns <code>wlan0</code> into
+          the boat's access point, so do not connect to the Pi over Wi-Fi to run it.</li>
+          <li>A user with <code>sudo</code>. The installer adds Docker and any other missing packages; it does not
+          upgrade packages that are already installed.</li>
+          <li>TCP ports 80, 443, 3000, 8086 and 9000 free for the stack.</li>
+          <li>Upgrading an existing install: back up the InfluxDB and SignalK data first and copy it off the Pi. The InfluxDB
+          organisation, bucket and token in <code>/etc/marine/marine.env</code> must match the existing database.</li>
+          </ul>
+          <h2>Install</h2>
+          <p>Extract the bundle into an empty directory that you will keep, and run <code>sudo ./deploy/install.sh</code>. The first
+          run creates <code>/etc/marine/marine.env</code> and stops: replace every <code>changeme</code>, then run it again.</p>
           <ul><li><a href="releases/latest.json">releases/latest.json</a> (feed used by marine-update)</li>
           <li><a href="docs/boat-checklist.md">Boat checklist</a></li>
           <li><a href="docs/config-model.md">Config model</a></li></ul>
@@ -63,5 +82,16 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
+
+  deploy:
+    needs: bundle
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
       - id: deploy
         uses: actions/deploy-pages@v4

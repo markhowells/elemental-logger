@@ -5,7 +5,7 @@
 #   sudo ./deploy/install.sh            from a checkout of this repo (or an extracted release)
 #
 # What it does (host-level only; all stack config is rendered by marine-apply):
-#   packages (Docker, hostapd, dnsmasq, can-utils, canboat, fake-hwclock, …), wlan0 unmanaged +
+#   packages (Docker, hostapd, dnsmasq, can-utils, fake-hwclock, …), wlan0 unmanaged +
 #   static IP, can0 @ 250 kbps, persistent journal, /opt/marine layout, systemd units,
 #   builds the SignalK image locally if no pinned registry image is configured yet,
 #   starts Portainer (+ admin bootstrap), then runs marine-apply.
@@ -33,18 +33,21 @@ python3 -I "$ROOT/deploy/lib/render.py" --env "$ENV_FILE" --images "$ROOT/deploy
 
 echo "==> Installing packages"
 apt-get update -qq
-apt-get install -y ca-certificates curl gnupg
+# --no-upgrade throughout: install only what is missing, so running this on a working Pi does not
+# upgrade Docker (restarting containers) or anything else as a side effect. Upgrade deliberately.
+apt-get install -y --no-upgrade ca-certificates curl gnupg
 if [[ ! -f /etc/apt/keyrings/docker.gpg ]]; then
     install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     chmod a+r /etc/apt/keyrings/docker.gpg
-    # bookworm repo: Docker may not publish trixie yet; the packages run fine on trixie.
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" \
+    # Docker's repo for this Debian release (trixie). An existing install keeps its current repo.
+    CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $CODENAME stable" \
         > /etc/apt/sources.list.d/docker.list
     apt-get update -qq
 fi
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin \
-    hostapd dnsmasq can-utils canboat python3-can rfkill iw fake-hwclock
+apt-get install -y --no-upgrade docker-ce docker-ce-cli containerd.io docker-compose-plugin \
+    hostapd dnsmasq can-utils python3-can rfkill iw fake-hwclock
 usermod -aG docker "$REAL_USER"
 
 echo "==> Unblocking WiFi / unmanaging wlan0 from NetworkManager"
@@ -105,7 +108,9 @@ case "$code" in 200) echo "    Portainer admin created." ;; 409) echo "    Porta
 
 echo "==> Enabling units"
 systemctl daemon-reload
+systemctl enable systemd-networkd hostapd dnsmasq          # AP and can0 must come back after a reboot
 systemctl enable wlan0-static.service marine-stack.service portainer.service marine-update.timer
+if ip link show wlan0 &>/dev/null; then systemctl restart wlan0-static.service; fi   # address before dnsmasq binds
 systemctl enable --now marine-update.timer || true
 systemctl restart hostapd dnsmasq 2>/dev/null || echo "WARN: hostapd/dnsmasq did not start — check 'journalctl -u hostapd' (WIFI_COUNTRY?)"
 
