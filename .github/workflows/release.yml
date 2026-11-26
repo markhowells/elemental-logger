@@ -75,7 +75,7 @@ jobs:
           <li><a href="docs/boat-checklist.md">Boat checklist</a></li>
           <li><a href="docs/config-model.md">Config model</a></li></ul>
           HTML
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: site/releases/*.tar.gz
           generate_release_notes: true
