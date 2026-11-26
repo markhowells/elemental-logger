@@ -50,7 +50,9 @@ jobs:
           cat > site/index.html <<HTML
           <!doctype html><meta charset=utf-8><title>Elemental logger</title>
           <h1>Elemental logger</h1><p>Latest release: <b>${VERSION#v}</b></p>
-          <p>To install: download the release bundle, extract it, and run <code>sudo ./deploy/install.sh</code>.</p>
+          <p><a href="releases/marine-${VERSION#v}.tar.gz"><b>Download the release bundle (marine-${VERSION#v}.tar.gz)</b></a><br>
+          SHA-256: <code>${sha}</code></p>
+          <p>To install: extract it into an empty directory and run <code>sudo ./deploy/install.sh</code>.</p>
           <ul><li><a href="releases/latest.json">releases/latest.json</a> (feed used by marine-update)</li>
           <li><a href="docs/boat-checklist.md">Boat checklist</a></li>
           <li><a href="docs/config-model.md">Config model</a></li></ul>
