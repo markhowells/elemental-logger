@@ -183,12 +183,14 @@ def main():
     ap.add_argument("--env", required=True)
     ap.add_argument("--images", required=True, help="images.env with pinned image references")
     ap.add_argument("--config", required=True, help="directory holding the templates")
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--out", help="output directory (required unless --check)")
     ap.add_argument("--container-gid", type=int, default=1000,
                     help="gid of the SignalK container user (node); signalk/* files are made readable by it")
     ap.add_argument("--version", default="dev")
     ap.add_argument("--check", action="store_true", help="validate and render in memory only")
     args = ap.parse_args()
+    if not args.check and not args.out:
+        ap.error("--out is required unless --check is given")
 
     env = dict(DEFAULTS)
     env.update(parse_env(args.env))
@@ -231,7 +233,7 @@ def main():
 
     # docker compose interpolation file (holds secrets: 0600)
     compose_env = {
-        "MARINE_RENDERED": os.path.abspath(args.out),
+        "MARINE_RENDERED": os.path.abspath(args.out) if args.out else "/var/lib/marine/rendered",
         "DOMAIN": env["DOMAIN"],
         "INFLUXDB_USERNAME": env["INFLUXDB_USERNAME"],
         "INFLUXDB_PASSWORD": env["INFLUXDB_PASSWORD"],
