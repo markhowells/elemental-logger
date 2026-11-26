@@ -5,7 +5,7 @@
 #   sudo ./deploy/install.sh            from a checkout of this repo (or an extracted release)
 #
 # What it does (host-level only; all stack config is rendered by marine-apply):
-#   packages (Docker, hostapd, dnsmasq, can-utils, canboat, fake-hwclock, …), wlan0 unmanaged +
+#   packages (Docker, hostapd, dnsmasq, can-utils, fake-hwclock, …), wlan0 unmanaged +
 #   static IP, can0 @ 250 kbps, persistent journal, /opt/marine layout, systemd units,
 #   builds the SignalK image locally if no pinned registry image is configured yet,
 #   starts Portainer (+ admin bootstrap), then runs marine-apply.
@@ -44,7 +44,7 @@ if [[ ! -f /etc/apt/keyrings/docker.gpg ]]; then
     apt-get update -qq
 fi
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin \
-    hostapd dnsmasq can-utils canboat python3-can rfkill iw fake-hwclock
+    hostapd dnsmasq can-utils python3-can rfkill iw fake-hwclock
 usermod -aG docker "$REAL_USER"
 
 echo "==> Unblocking WiFi / unmanaging wlan0 from NetworkManager"
@@ -105,7 +105,9 @@ case "$code" in 200) echo "    Portainer admin created." ;; 409) echo "    Porta
 
 echo "==> Enabling units"
 systemctl daemon-reload
+systemctl enable systemd-networkd hostapd dnsmasq          # AP and can0 must come back after a reboot
 systemctl enable wlan0-static.service marine-stack.service portainer.service marine-update.timer
+if ip link show wlan0 &>/dev/null; then systemctl restart wlan0-static.service; fi   # address before dnsmasq binds
 systemctl enable --now marine-update.timer || true
 systemctl restart hostapd dnsmasq 2>/dev/null || echo "WARN: hostapd/dnsmasq did not start — check 'journalctl -u hostapd' (WIFI_COUNTRY?)"
 

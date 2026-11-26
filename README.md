@@ -18,6 +18,22 @@ do before and after a trip.
 | InfluxDB | `http://influx.elemental.internal/` (or `:8086`) |
 | Portainer | `http://portainer.elemental.internal/` (or `:9000`) |
 
+## Prerequisites on the Pi
+
+* Raspberry Pi 4 Model B, 64-bit Debian 13 (trixie) / Raspberry Pi OS. Other models and releases are untested.
+* A CAN interface that already appears as `can0` (`ip link show can0`). The installer sets 250 kbps but does not
+  enable the hardware. For an MCP2515 SPI HAT, `/boot/firmware/config.txt` needs lines like these (oscillator and
+  interrupt depend on the HAT):
+  ```
+  dtparam=spi=on
+  dtoverlay=mcp2515-can0,oscillator=16000000,interrupt=23
+  ```
+* Internet over **wired Ethernet** while installing, and occasionally for updates. The installer turns `wlan0` into
+  the boat access point, so don't run it over a Wi-Fi SSH session.
+* A user with `sudo`. Docker and other packages are installed (or upgraded) by the installer.
+* TCP ports 80, 443, 3000, 8086 and 9000 free.
+* Existing install: back up the InfluxDB and SignalK data and copy it off the Pi first.
+
 ## Install (needs Internet once)
 
 ```bash

@@ -52,7 +52,24 @@ jobs:
           <h1>Elemental logger</h1><p>Latest release: <b>${VERSION#v}</b></p>
           <p><a href="releases/marine-${VERSION#v}.tar.gz"><b>Download the release bundle (marine-${VERSION#v}.tar.gz)</b></a><br>
           SHA-256: <code>${sha}</code></p>
-          <p>To install: extract it into an empty directory and run <code>sudo ./deploy/install.sh</code>.</p>
+          <h2>Prerequisites on the Pi</h2>
+          <ul>
+          <li>Raspberry Pi 4 Model B running 64-bit Debian 13 (trixie) / Raspberry Pi OS. Other models and releases are untested.</li>
+          <li>A CAN interface that already appears as <code>can0</code> (check with <code>ip link show can0</code>). The installer sets
+          the 250 kbps bit rate but does not enable the hardware. For an MCP2515 SPI HAT, <code>/boot/firmware/config.txt</code> needs
+          lines like these (oscillator and interrupt depend on the HAT):
+          <pre>dtparam=spi=on
+          dtoverlay=mcp2515-can0,oscillator=16000000,interrupt=23</pre></li>
+          <li>Internet over wired Ethernet while installing, and now and then for updates. The installer turns <code>wlan0</code> into
+          the boat's access point, so do not connect to the Pi over Wi-Fi to run it.</li>
+          <li>A user with <code>sudo</code>. Docker and the other packages are installed (or upgraded) by the installer.</li>
+          <li>TCP ports 80, 443, 3000, 8086 and 9000 free for the stack.</li>
+          <li>Upgrading an existing install: back up the InfluxDB and SignalK data first and copy it off the Pi. The InfluxDB
+          organisation, bucket and token in <code>/etc/marine/marine.env</code> must match the existing database.</li>
+          </ul>
+          <h2>Install</h2>
+          <p>Extract the bundle into an empty directory that you will keep, and run <code>sudo ./deploy/install.sh</code>. The first
+          run creates <code>/etc/marine/marine.env</code> and stops: replace every <code>changeme</code>, then run it again.</p>
           <ul><li><a href="releases/latest.json">releases/latest.json</a> (feed used by marine-update)</li>
           <li><a href="docs/boat-checklist.md">Boat checklist</a></li>
           <li><a href="docs/config-model.md">Config model</a></li></ul>
