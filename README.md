@@ -30,7 +30,8 @@ do before and after a trip.
   ```
 * Internet over **wired Ethernet** while installing, and occasionally for updates. The installer turns `wlan0` into
   the boat access point, so don't run it over a Wi-Fi SSH session.
-* A user with `sudo`. Docker and other packages are installed (or upgraded) by the installer.
+* A user with `sudo`. The installer adds Docker and any other missing packages; it does not upgrade
+  packages that are already installed.
 * TCP ports 80, 443, 3000, 8086 and 9000 free.
 * Existing install: back up the InfluxDB and SignalK data and copy it off the Pi first.
 

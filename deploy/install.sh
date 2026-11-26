@@ -33,17 +33,20 @@ python3 -I "$ROOT/deploy/lib/render.py" --env "$ENV_FILE" --images "$ROOT/deploy
 
 echo "==> Installing packages"
 apt-get update -qq
-apt-get install -y ca-certificates curl gnupg
+# --no-upgrade throughout: install only what is missing, so running this on a working Pi does not
+# upgrade Docker (restarting containers) or anything else as a side effect. Upgrade deliberately.
+apt-get install -y --no-upgrade ca-certificates curl gnupg
 if [[ ! -f /etc/apt/keyrings/docker.gpg ]]; then
     install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     chmod a+r /etc/apt/keyrings/docker.gpg
-    # bookworm repo: Docker may not publish trixie yet; the packages run fine on trixie.
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" \
+    # Docker's repo for this Debian release (trixie). An existing install keeps its current repo.
+    CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $CODENAME stable" \
         > /etc/apt/sources.list.d/docker.list
     apt-get update -qq
 fi
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin \
+apt-get install -y --no-upgrade docker-ce docker-ce-cli containerd.io docker-compose-plugin \
     hostapd dnsmasq can-utils python3-can rfkill iw fake-hwclock
 usermod -aG docker "$REAL_USER"
 

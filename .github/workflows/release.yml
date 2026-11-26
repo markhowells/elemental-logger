@@ -62,7 +62,8 @@ jobs:
           dtoverlay=mcp2515-can0,oscillator=16000000,interrupt=23</pre></li>
           <li>Internet over wired Ethernet while installing, and now and then for updates. The installer turns <code>wlan0</code> into
           the boat's access point, so do not connect to the Pi over Wi-Fi to run it.</li>
-          <li>A user with <code>sudo</code>. Docker and the other packages are installed (or upgraded) by the installer.</li>
+          <li>A user with <code>sudo</code>. The installer adds Docker and any other missing packages; it does not
+          upgrade packages that are already installed.</li>
           <li>TCP ports 80, 443, 3000, 8086 and 9000 free for the stack.</li>
           <li>Upgrading an existing install: back up the InfluxDB and SignalK data first and copy it off the Pi. The InfluxDB
           organisation, bucket and token in <code>/etc/marine/marine.env</code> must match the existing database.</li>
