@@ -7,6 +7,9 @@ Background: the Pi 4 has no RTC and no `fake-hwclock`, so offline boots start fr
 > `deploy/install.sh` now does steps 1–2 for you (persistent journal, `fake-hwclock`), and `sudo marine-doctor`
 > reports on them (steps 3–4 and the clock/journal/power checks). The manual commands below are kept for reference
 > and for Pis installed before this change.
+>
+> From v0.1.3, `marine-apply` makes the journal persistent. Earlier versions did not (although `marine-doctor`
+> said so), and step 1 alone is **not enough** on Raspberry Pi OS. Always confirm with step 4.
 
 1. **Make the journal persistent.** This lets kernel and power messages survive a reboot:
    ```bash

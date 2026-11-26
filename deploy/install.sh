@@ -6,7 +6,7 @@
 #
 # What it does (host-level only; all stack config is rendered by marine-apply):
 #   packages (Docker, hostapd, dnsmasq, can-utils, fake-hwclock, …), wlan0 unmanaged +
-#   static IP, can0 @ 250 kbps, persistent journal, /opt/marine layout, systemd units,
+#   static IP, can0 @ 250 kbps, /opt/marine layout, systemd units,
 #   builds the SignalK image locally if no pinned registry image is configured yet,
 #   starts Portainer (+ admin bootstrap), then runs marine-apply.
 set -euo pipefail
@@ -62,13 +62,12 @@ fi
 rm -f /etc/network/interfaces.d/wlan0
 systemctl unmask hostapd 2>/dev/null || true
 
-echo "==> Persistent journal (so failed boots leave evidence)"
-mkdir -p /var/log/journal
-systemctl restart systemd-journald || true
-
 echo "==> Clock: fake-hwclock saves the time hourly and at shutdown; offline boots then start near the"
 echo "    last real time instead of the last NTP sync. A DS3231 RTC is the proper fix (docs/boat-checklist.md)."
-systemctl enable fake-hwclock 2>/dev/null || true
+# trixie splits it into load/save units and masks the old "fake-hwclock" name; older releases have only that.
+systemctl enable fake-hwclock-load.service fake-hwclock-save.service fake-hwclock-save.timer 2>/dev/null \
+    || systemctl enable fake-hwclock 2>/dev/null \
+    || echo "WARN: could not enable fake-hwclock"
 fake-hwclock save 2>/dev/null || true
 
 echo "==> Layout under $OPT"
@@ -80,7 +79,7 @@ for t in marine-apply marine-doctor marine-update; do
     ln -sfn "$OPT/current/deploy/$t" "/usr/local/sbin/$t"
 done
 
-echo "==> Static IP on wlan0 and can0 are installed by marine-apply (units + networkd file)"
+echo "==> wlan0 static IP, can0 and the persistent journal are installed by marine-apply"
 
 # Local build of the SignalK image, only while no registry image is pinned yet.
 SIGNALK_IMAGE="$(grep -E '^SIGNALK_IMAGE=' "$ROOT/deploy/images.env" | cut -d= -f2-)"

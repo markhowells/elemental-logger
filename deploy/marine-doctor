@@ -85,20 +85,34 @@ if [[ "$CANIF" != "can0" ]]; then
     add WARN "CAN interface" "TEST MODE: SignalK reads $CANIF, not can0 — run tools/canswitch.sh (choose can0) before sailing"
 fi
 ip link show "$CANIF" 2>/dev/null | grep -q -E 'state (UP|UNKNOWN)' && add OK "$CANIF" "UP" || add WARN "$CANIF" "not UP (normal on a bench without a CAN interface/bus)"
+RTC_DEV="${MARINE_DEV_DIR:-/dev}"
+has_rtc() { ls "$RTC_DEV"/rtc* >/dev/null 2>&1; }
+# trixie: fake-hwclock-load.service (the old name is masked there). Older releases: fake-hwclock.
+has_fake_hwclock() {
+    systemctl is-enabled --quiet fake-hwclock-load.service 2>/dev/null || systemctl is-enabled --quiet fake-hwclock 2>/dev/null
+}
 if [[ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" == yes ]]; then
     add OK "clock" "NTP synchronized"
-elif ls /dev/rtc* >/dev/null 2>&1 || systemctl is-enabled fake-hwclock >/dev/null 2>&1; then
+elif has_rtc || has_fake_hwclock; then
     add WARN "clock" "not NTP-synced (offline) — clock restored from RTC/fake-hwclock, may be hours/days off"
 else
     add FAIL "clock" "not synced and no RTC or fake-hwclock: offline boots start from the last NTP sync (data gets wrong timestamps)"
 fi
-if ls /dev/rtc* >/dev/null 2>&1; then add OK "RTC" "present"; elif systemctl is-enabled fake-hwclock >/dev/null 2>&1; then add WARN "RTC" "no hardware RTC; fake-hwclock in use"; else add WARN "RTC" "none"; fi
-if [[ -d /var/log/journal ]] && journalctl --list-boots 2>/dev/null | wc -l | grep -qv '^[01]$'; then
-    add OK "persistent journal" "$(journalctl --list-boots 2>/dev/null | wc -l) boots recorded"
-elif [[ -d /var/log/journal ]]; then
-    add WARN "persistent journal" "enabled, only the current boot recorded so far"
+if has_rtc; then add OK "RTC" "present"; elif has_fake_hwclock; then add WARN "RTC" "no hardware RTC; fake-hwclock in use"; else add WARN "RTC" "none"; fi
+# The directory alone proves nothing: a drop-in can force Storage=volatile. Check the effective
+# setting (last assignment wins) and that journal files are really there.
+JOURNAL_DIR="${MARINE_JOURNAL_DIR:-/var/log/journal}"
+storage="$(systemd-analyze cat-config systemd/journald.conf 2>/dev/null | sed -n 's/^[[:space:]]*Storage=[[:space:]]*//p' | tail -1)"
+# --list-boots prints a header line on newer systemd: count only the rows that start with an index.
+boots="$(journalctl --list-boots 2>/dev/null | grep -c -E '^[[:space:]]*-?[0-9]+[[:space:]]')"
+if [[ "$storage" == volatile || "$storage" == none ]]; then
+    add FAIL "persistent journal" "journald Storage=$storage: logs are lost at reboot. Run marine-apply."
+elif ! compgen -G "$JOURNAL_DIR/*/*.journal" >/dev/null; then
+    add FAIL "persistent journal" "no journal files in $JOURNAL_DIR (run as root, or run marine-apply)"
+elif [[ "$boots" -gt 1 ]]; then
+    add OK "persistent journal" "$boots boots recorded"
 else
-    add FAIL "persistent journal" "/var/log/journal missing: failed boots leave no evidence"
+    add WARN "persistent journal" "enabled, only the current boot recorded so far"
 fi
 thr="$(vcgencmd get_throttled 2>/dev/null | cut -d= -f2)"
 if [[ -n "$thr" ]]; then

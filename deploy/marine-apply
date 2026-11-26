@@ -70,6 +70,18 @@ if ! cmp -s "$ROOT/config/can0.network" /etc/systemd/network/can0.network 2>/dev
     install -D -m 0644 "$ROOT/config/can0.network" /etc/systemd/network/can0.network
     systemctl restart systemd-networkd || true
 fi
+# Persistent journal. Done here, not only in install.sh, so that updating an existing Pi applies it.
+JOURNAL_CONF=/etc/systemd/journald.conf.d/50-marine-persistent.conf
+if ! cmp -s "$ROOT/config/journald-marine.conf" "$JOURNAL_CONF" 2>/dev/null; then
+    install -D -m 0644 "$ROOT/config/journald-marine.conf" "$JOURNAL_CONF"
+    mkdir -p /var/log/journal
+    systemd-tmpfiles --create --prefix /var/log/journal || true   # ownership and ACLs
+    if systemctl restart systemd-journald && journalctl --flush; then
+        log "journal is now persistent"
+    else
+        log "WARN: could not restart/flush journald; a reboot will apply the persistent journal"
+    fi
+fi
 units_changed=0
 for u in "$ROOT"/deploy/systemd/*.service "$ROOT"/deploy/systemd/*.timer; do
     [[ -f "$u" ]] || continue

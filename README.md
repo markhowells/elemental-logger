@@ -9,6 +9,9 @@ the Internet; nothing is ever pushed to it. See [docs/config-model.md](docs/conf
 configuration, secrets and updates fit together and [docs/boat-checklist.md](docs/boat-checklist.md) for what to
 do before and after a trip.
 
+Coming back after a while? Start with [docs/pi-operations.md](docs/pi-operations.md) (running, upgrading,
+installing, secrets) or [docs/release-guide.md](docs/release-guide.md) (building and publishing a release).
+
 ## Services
 
 | Service | URL on the boat Wi-Fi |

@@ -97,4 +97,60 @@ check "doctor reports each check exactly once" "[ -z \"\$(grep -E '^(OK|WARN|FAI
 check "marine-apply and marine-update agree on the installed-version file" \
   "grep -q 'STATE/current.json' deploy/marine-apply && grep -q 'STATE/current.json\" version' deploy/marine-update"
 
+doctor() {  # doctor <journald Storage> <journal dir> <list-boots output>
+    printf '#!/bin/sh\necho "# /usr/lib/x.conf"\necho "Storage=%s"\n' "$1" > "$T/stub/systemd-analyze"
+    printf '#!/bin/sh\nprintf "%%b" "%s"\n' "$3" > "$T/stub/journalctl"; chmod +x "$T/stub/systemd-analyze" "$T/stub/journalctl"
+    PATH="$T/stub:$PATH" MARINE_ENV="$T/doc.env" MARINE_STATE_DIR="$T/docstate" MARINE_JOURNAL_DIR="$2" MARINE_DEV_DIR="$T/nodev" \
+        deploy/marine-doctor >"$T/doc.out" 2>&1
+}
+HDR='IDX BOOT ID FIRST LAST\n'
+mkdir -p "$T/journal/abc" "$T/nojournal"; : > "$T/journal/abc/system.journal"
+doctor volatile "$T/journal" "$HDR  0 aaa x y\n"
+check "journal: volatile storage fails even with old files present" "grep -q '^FAIL  persistent journal' $T/doc.out"
+doctor persistent "$T/nojournal" "$HDR  0 aaa x y\n"
+check "journal: no files on disk fails" "grep -q '^FAIL  persistent journal' $T/doc.out"
+doctor persistent "$T/journal" "$HDR  0 aaa x y\n"
+check "journal: header line is not counted as a boot" "grep -q '^WARN  persistent journal' $T/doc.out"
+doctor persistent "$T/journal" "$HDR -1 aaa x y\n  0 bbb x y\n"
+check "journal: two boots reported as two" "grep -q '^OK    persistent journal *2 boots' $T/doc.out"
+# trixie: the old fake-hwclock name is masked, the load unit is enabled. Offline (no NTP, no RTC).
+cat > "$T/stub/systemctl" <<'SH'
+#!/bin/sh
+for a in "$@"; do [ "$a" = fake-hwclock-load.service ] && exit 0; done
+exit 1
+SH
+doctor persistent "$T/journal" "$HDR  0 aaa x y\n"
+check "clock: trixie fake-hwclock is recognised when offline" \
+  "grep -q '^WARN  clock' $T/doc.out && grep -q '^WARN  RTC .*fake-hwclock in use' $T/doc.out"
+printf '#!/bin/sh\nexit 1\n' > "$T/stub/systemctl"
+doctor persistent "$T/journal" "$HDR  0 aaa x y\n"
+check "clock: offline with neither RTC nor fake-hwclock still fails" "grep -q '^FAIL  clock' $T/doc.out"
+check "the persistent-journal drop-in sorts after Raspberry Pi OS's volatile one" \
+  "grep -q '^Storage=persistent' config/journald-marine.conf && grep -q '50-marine-persistent.conf' deploy/marine-apply"
+
+echo "smoke-test safety (stubbed docker; nothing real is touched)"
+cat > "$T/stub/docker" <<'SH'
+#!/bin/sh
+echo "$*" >> "$STUB_LOG"
+case "$1 $2" in
+    "volume ls") printf '%s\n' $STUB_VOLUMES ;;
+    "ps -a") printf '%s\n' $STUB_CONTAINERS ;;
+esac
+SH
+printf '#!/bin/sh\necho "sudo $*" >> "$STUB_LOG"\n' > "$T/stub/sudo"; chmod +x "$T/stub/sudo" "$T/stub/docker"
+smoke() {  # smoke <volumes> <containers> <marine.env path>
+    : > "$T/stub.log"
+    PATH="$T/stub:$PATH" STUB_LOG="$T/stub.log" STUB_VOLUMES="$1" STUB_CONTAINERS="$2" MARINE_ENV="$3" \
+        SIGNALK_IMAGE=x tools/smoke-test.sh >"$T/smoke.out" 2>&1
+}
+untouched() { grep -q REFUSING "$T/smoke.out" && ! grep -q -E 'compose|down|volume rm|^sudo' "$T/stub.log"; }
+smoke "pi_influxdb_data" "" "$T/none.env"; rc=$?
+check "refuses where pi_* volumes exist, touching nothing" "[ $rc -ne 0 ] && untouched"
+smoke "" "influxdb" "$T/none.env"; rc=$?
+check "refuses where a stack container exists, touching nothing" "[ $rc -ne 0 ] && untouched"
+smoke "" "" "$T/doc.env"; rc=$?
+check "refuses on a machine with marine.env, touching nothing" "[ $rc -ne 0 ] && untouched"
+check "smoke test overrides every pinned volume and network name" \
+  "for n in \$(sed -n 's/^ *name: pi_//p' deploy/docker-compose.yml); do grep -q \"name: smoke_\$n}\" tools/smoke-test.sh || exit 1; done"
+
 echo; echo "$pass passed, $failn failed"; [ "$failn" -eq 0 ]
