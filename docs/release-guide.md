@@ -3,7 +3,7 @@
 How to ship a new release, what CI does, and what to do when it fails.
 The Pi side (installing, updating, secrets) is in [pi-operations.md](pi-operations.md).
 
-Written against release **v0.1.2** (November 2026). If this and a workflow file disagree, the file is right.
+Written against release **v0.1.3** (November 2026). If this and a workflow file disagree, the file is right.
 
 ---
 
@@ -86,10 +86,9 @@ docker build -f images/signalk/Dockerfile --build-arg SIGNALK_BASE --build-arg P
 SIGNALK_IMAGE=elemental-signalk:dev tools/smoke-test.sh      # needs sudo, can-utils, vcan module
 ```
 
-> **Danger: never run `tools/smoke-test.sh` on the Pi, or on any machine with real `pi_*` Docker volumes.**
-> The compose file names its volumes explicitly (`pi_influxdb_data` and so on), so the test project does
-> not get private copies, and its clean-up runs `docker compose down -v`, which removes them. It also
-> uses the same container names and ports as the live stack.
+The test needs a machine with **no marine install**. It refuses to start if it finds `marine.env`, any
+`pi_*` volume, a `signalk`, `influxdb` or `caddy` container, or a real `can0`, and it uses its own `smoke_*`
+volumes and network. Keep those checks: versions up to v0.1.2 could delete the real data volumes.
 
 ### 2.3 Pull request, merge, tag
 
@@ -151,7 +150,7 @@ script must be added to the list in `ci.yml`.
 **hadolint** on `images/signalk/Dockerfile`. Ignored rules: `DL3006` (base image is tagged through a build
 argument), `DL3008` (apt versions not pinned), `DL3059` (consecutive `RUN` lines).
 
-**Unit tests** (`tests/run.sh`, 32 at v0.1.2):
+**Unit tests** (`tests/run.sh`, 43 at v0.1.3):
 
 | Group | What is proved |
 |---|---|
@@ -159,7 +158,8 @@ argument), `DL3008` (apt versions not pinned), `DL3059` (consecutive `RUN` lines
 | Rejections | bad `CAN_INTERFACE`, `changeme`, short token, bad `TLS_MODE`, bad `DOMAIN`, negative resolution, `$` in a Compose value: each fails and writes nothing |
 | Settings merge | fresh file created; managed keys corrected and others preserved; second run changes nothing |
 | Updater (fake feed, no Docker) | offline is quiet; update detected; staging without applying; apply; up to date; tampered bundle refused; failed apply rolls back; failed release not retried |
-| Doctor and apply | each doctor check is reported once; apply and update use the same installed-version file |
+| Doctor and apply | each doctor check is reported once; apply and update use the same installed-version file; volatile or missing journal fails; boots counted correctly; `fake-hwclock` recognised offline; journal setting sorts after Raspberry Pi OS's |
+| Smoke-test safety (stubbed Docker) | refuses where a real install, volume or container exists, touching nothing; every pinned volume and network name is overridden |
 
 **Compose validation:** renders with `tests/fixtures/test.env`, then `docker compose config -q` on both
 `docker-compose.yml` and `portainer.yml`.
@@ -184,6 +184,7 @@ can pull newer dependencies, so the released image is not byte-for-byte the one 
 
 `tools/smoke-test.sh` tests the whole data path on amd64:
 
+0. refuses to run on a machine with a marine install, and gives volumes and network `smoke_*` names;
 1. creates a virtual CAN interface called `can0`;
 2. renders config with throw-away credentials, using the image just built;
 3. starts the stack (SignalK, InfluxDB, Caddy);

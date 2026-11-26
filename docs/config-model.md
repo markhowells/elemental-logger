@@ -21,7 +21,7 @@ The only thing that lives on the Pi and nowhere else is `/etc/marine/marine.env`
 | `settings.json` managed keys: `vessel.name`, `vessel.mmsi`, `pipedProviders`, `port`, `sslport`, `security.strategy`, `security.allow_readonly` | **managed keys** | `merge-settings` sets these on every start. A managed key absent from the template is **removed** from the live file. |
 | rest of `settings.json` (`interfaces`, `resourcesApi`, `courseApi`, UI changes) | preserved | SignalK rewrites these at runtime; never overwritten. |
 | `security.json`, users, tokens, KIP history, resources | preserved | Live in the `pi_signalk_data` volume. |
-| compose files, hostapd, dnsmasq, Caddyfile, landing page, systemd units, `can0.network` | **managed** | Rendered/installed by `marine-apply`; changed ones restart only the affected service. |
+| compose files, hostapd, dnsmasq, Caddyfile, landing page, systemd units, `can0.network`, journald drop-in | **managed** | Rendered/installed by `marine-apply`; changed ones restart only the affected service. |
 | image references | **pinned** | `deploy/images.env` (digests). Bump deliberately; a release rewrites `SIGNALK_IMAGE`. |
 | InfluxDB data, Portainer data | data | Volumes `pi_influxdb_*`, `pi_portainer_data`. Never touched by apply. |
 

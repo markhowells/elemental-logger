@@ -5,21 +5,50 @@
 #   SIGNALK_IMAGE=elemental-signalk:ci tools/smoke-test.sh
 #
 # Used by CI; also runnable on the devbox (needs `sudo`, `can-utils`, and the vcan kernel module).
+#
+# It must never touch a real install: it uses its own volume and network names, and refuses to run
+# where a marine stack exists, because its clean-up deletes the volumes it used.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${SIGNALK_IMAGE:?set SIGNALK_IMAGE to the image under test}"
 
+# ── safety checks: nothing is changed (and no clean-up is armed) until all of these pass ──────
+refuse() { echo "smoke-test: REFUSING to run: $*" >&2; exit 1; }
+[[ ! -e "${MARINE_ENV:-/etc/marine/marine.env}" ]] || refuse "this machine has a marine install (marine.env exists)"
+volumes="$(docker volume ls --format '{{.Name}}')"
+! grep -q '^pi_' <<<"$volumes" || refuse "pi_* volumes exist here (real data)"
+containers="$(docker ps -a --format '{{.Names}}')"
+! grep -qxE 'signalk|influxdb|caddy' <<<"$containers" || refuse "a signalk, influxdb or caddy container already exists"
+if ip link show can0 >/dev/null 2>&1 && ! ip -details link show can0 | grep -qw vcan; then
+    refuse "can0 is a real CAN interface"
+fi
+
 W="$(mktemp -d)"
+made_can0=0
+COMPOSE=(docker compose -p smoke --env-file "$W/rendered/compose.env" -f deploy/docker-compose.yml -f "$W/isolate.yml")
+stack_started=0
 cleanup() {
-    docker compose -p smoke --env-file "$W/rendered/compose.env" -f deploy/docker-compose.yml down -v >/dev/null 2>&1 || true
-    sudo ip link del can0 2>/dev/null || true
+    if [[ $stack_started -eq 1 ]]; then "${COMPOSE[@]}" down -v >/dev/null 2>&1 || true; fi
+    if [[ $made_can0 -eq 1 ]]; then sudo ip link del can0 2>/dev/null || true; fi
     rm -rf "$W"
 }
 trap cleanup EXIT
 
+# The shipped compose file pins the production volume and network names; replace every one of them.
+cat > "$W/isolate.yml" <<'YML'
+networks:
+  marine_net: {name: smoke_marine_net}
+volumes:
+  signalk_data: {name: smoke_signalk_data}
+  influxdb_data: {name: smoke_influxdb_data}
+  influxdb_config: {name: smoke_influxdb_config}
+  caddy_data: {name: smoke_caddy_data}
+  caddy_config: {name: smoke_caddy_config}
+YML
+
 echo "==> virtual CAN (named can0, as production)"
 sudo modprobe vcan
-sudo ip link add dev can0 type vcan 2>/dev/null || true
+if ! ip link show can0 >/dev/null 2>&1; then sudo ip link add dev can0 type vcan; made_can0=1; fi
 sudo ip link set up can0
 
 echo "==> render config with test credentials"
@@ -40,7 +69,10 @@ python3 -I deploy/lib/render.py --env "$W/test.env" --images "$W/images.env" --c
 TOKEN="$(grep '^INFLUXDB_TOKEN=' "$W/test.env" | cut -d= -f2-)"
 
 echo "==> start stack"
-docker compose -p smoke --env-file "$W/rendered/compose.env" -f deploy/docker-compose.yml up -d
+resolved="$("${COMPOSE[@]}" config)"
+! grep -qE 'name: pi_' <<<"$resolved" || refuse "a production volume or network name is not overridden in isolate.yml"
+stack_started=1
+"${COMPOSE[@]}" up -d
 
 echo "==> wait for services"
 for _ in $(seq 1 90); do

@@ -3,8 +3,8 @@
 How the logger works on the Pi and how to look after it.
 Building releases is in [release-guide.md](release-guide.md).
 
-Written against release **v0.1.2** (November 2026).
-**Read [section 9, known issues](#9-known-issues): two checks in `marine-doctor` give wrong answers.**
+Written against release **v0.1.3** (November 2026).
+**A Pi still on v0.1.2 loses its logs at every reboot and gets two checks wrong: see [section 9](#9-known-issues).**
 
 ---
 
@@ -115,6 +115,7 @@ install. **Do not delete that directory** while it is current or is your rollbac
 | `/var/lib/marine/staged/` | downloads; the file `READY` names the staged version |
 | `/var/lib/marine/failed/` | versions that failed to apply and will not be retried |
 | `/usr/local/sbin/marine-*` | links into the active release |
+| `/etc/systemd/journald.conf.d/50-marine-persistent.conf` | keeps logs across reboots (installed by `marine-apply`) |
 | `/var/lib/docker/volumes/pi_*` | data |
 
 ### 2.5 systemd units
@@ -283,6 +284,7 @@ You should not normally need these.
 | `MARINE_ROOT` | apply, doctor | release directory to use |
 | `MARINE_OPT_DIR` | update | other path for `/opt/marine` |
 | `MARINE_UPDATE_URL` | update | one-off feed override (beats `UPDATE_URL`) |
+| `MARINE_JOURNAL_DIR`, `MARINE_DEV_DIR` | doctor | test overrides for `/var/log/journal` and `/dev` |
 | `MARINE_DRY_RUN` | update | `1` = no Docker or apply (tests) |
 | `REBUILD` | install | `1` = rebuild a locally built image |
 | `SIGNALK_IMAGE`, `INFLUXDB_IMAGE`, `CADDY_IMAGE`, `PORTAINER_IMAGE` | Compose, from `images.env` | pinned images |
@@ -394,6 +396,9 @@ Afterwards, only if relevant:
 | `PORTAINER_IMAGE` changed | `sudo docker compose --env-file /var/lib/marine/rendered/compose.env -f /opt/marine/current/deploy/portainer.yml up -d` (`marine-apply` does not do Portainer) |
 | `install.sh` changed (packages, enabling units) | `sudo /opt/marine/current/deploy/install.sh` |
 
+**Upgrading from v0.1.2 to v0.1.3:** `marine-update --apply` installs the persistent-journal setting itself.
+Reboot afterwards and check that `journalctl --list-boots` shows rows `-1` and `0`.
+
 Finish with `sudo reboot` and another `sudo marine-doctor` if units, networking or `install.sh` changed.
 
 `sudo marine-update` with no option does check, stage and apply in one go.
@@ -475,20 +480,15 @@ existing Pi (and rehearsed with system commands faked).
    dtoverlay=mcp2515-can0,oscillator=16000000,interrupt=23
    dtoverlay=mcp2515-can1,oscillator=16000000,interrupt=25
    ```
-4. Make the journal persistent (the installer does not manage this on Raspberry Pi OS, section 9):
-   ```bash
-   sudo mkdir -p /etc/systemd/journald.conf.d /var/log/journal
-   printf '[Journal]\nStorage=persistent\nSystemMaxUse=200M\n' | sudo tee /etc/systemd/journald.conf.d/50-marine-persistent.conf
-   ```
-5. `sudo reboot`, then `ip link show can0` must list the interface.
-6. Check `sudo apt-get update` finishes without `E:` lines. The installer stops if it does not.
+4. `sudo reboot`, then `ip link show can0` must list the interface.
+5. Check `sudo apt-get update` finishes without `E:` lines. The installer stops if it does not.
 
 ### 6.2 Install the release
 
 Take the version shown in the feed or on the Pages front page.
 
 ```bash
-V=0.1.2
+V=0.1.3
 cd ~
 curl -fLO https://github.com/markhowells/elemental-logger/releases/download/v$V/marine-$V.tar.gz
 sha256sum marine-$V.tar.gz        # compare with the Release page / Pages page
@@ -505,8 +505,8 @@ using the published one.
 New InfluxDB token, if you need one: `openssl rand -hex 32`.
 
 What the installer does: installs missing packages (never upgrades) including Docker, hands `wlan0` to the
-access point, enables the journal directory and `fake-hwclock`, creates `/opt/marine` and the `marine-*`
-commands, runs `marine-apply`, starts Portainer and creates its admin, and enables the units.
+access point, enables `fake-hwclock`, creates `/opt/marine` and the `marine-*`
+commands, runs `marine-apply` (which also makes the journal persistent), starts Portainer and creates its admin, and enables the units.
 
 ### 6.3 First-run tasks
 
@@ -533,8 +533,8 @@ commands, runs `marine-apply`, starts Portainer and creates its admin, and enabl
 | `destination bucket` | org, bucket or token in `marine.env` do not match InfluxDB |
 | `recent data` | normal on the bench. Underway: check `can0`, SignalK data, plugin log |
 | `can0` | wiring, `config.txt` overlay, `systemctl status systemd-networkd` |
-| `clock`, `RTC` | see section 9 |
-| `persistent journal` | see section 9 |
+| `clock`, `RTC` | `RTC` warning with `fake-hwclock in use` is normal. A `clock` failure means offline with nothing restoring the time: `systemctl status fake-hwclock-load.service` |
+| `persistent journal` | `sudo marine-apply`; if it stays, `systemd-analyze cat-config systemd/journald.conf` shows which file sets `Storage=` |
 | `power` | undervoltage: supply or cable |
 | `disk` | InfluxDB growth or old images |
 
@@ -571,17 +571,18 @@ run `sudo marine-apply`. `marine-doctor` warns while test mode is on.
 
 ## 9. Known issues
 
-As of v0.1.2. Delete entries as they are fixed.
+As of v0.1.3. Delete entries as they are fixed.
+
+**Only on v0.1.2 and earlier** (upgrade to fix):
+- logs are not kept across reboots, although `marine-doctor` reports that they are;
+- `marine-doctor` shows `RTC none`, and offline a false `FAIL clock`;
+- `tools/smoke-test.sh` from those versions can delete the `pi_*` volumes.
 
 | Issue | Effect | Work-around / fix |
 |---|---|---|
-| **Journal is not persistent.** Raspberry Pi OS ships `Storage=volatile` in `/usr/lib/systemd/journald.conf.d/`, which overrides the `/var/log/journal` directory the installer creates | logs are lost at every reboot, so a failed boat boot leaves no evidence | add the override in section 6.1 step 4, `sudo systemctl restart systemd-journald && sudo journalctl --flush`, reboot, check `journalctl --list-boots`. To fix in `install.sh` |
-| **`persistent journal` check is wrong**: it counts the header line of `journalctl --list-boots` | reports "2 boots recorded" with one boot | check `journalctl --list-boots` yourself. To fix in `marine-doctor` |
-| **`clock` / `RTC` checks are wrong on trixie**: they test the masked unit `fake-hwclock` instead of `fake-hwclock-load.service` | `RTC none`, and **offline a false `FAIL clock`** (non-zero exit) | check `systemctl is-enabled fake-hwclock-load.service`. To fix in `marine-doctor` |
 | `can0.network` has no automatic restart after a CAN bus-off fault | logging stops until the interface is restarted | `sudo ip link set can0 down && sudo ip link set can0 up`, or reboot. To fix: `RestartSec=` in `[CAN]` |
 | Installer runs `apt-get update` even when nothing is missing | an unrelated broken package source stops it | disable that source. `pxvirt-sources.list` was renamed to `.disabled` for this reason |
 | `marine-apply` health check ignores Caddy, Wi-Fi and Portainer | a release can "succeed" with those broken | run `marine-doctor` and join the Wi-Fi after upgrading |
 | Landing page shows no status | nothing runs `marine-doctor --json` automatically | run it by hand |
-| `tools/smoke-test.sh` can delete the `pi_*` volumes | data loss if run on the Pi | never run it on the Pi |
-| Logging has not been verified end to end on the real Pi since v0.1.2 | unproven | after the next trip, query `sailing_data` for the trip period |
+| Logging has not been verified end to end on the real Pi since the move to releases | unproven | after the next trip, query `sailing_data` for the trip period |
 | No data May–October 2026 | cause unknown | [boat-checklist.md](boat-checklist.md) |
