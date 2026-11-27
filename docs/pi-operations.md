@@ -24,6 +24,44 @@ docker logs --tail 100 signalk  # also influxdb, caddy, portainer
 journalctl -u marine-update -u marine-stack
 ```
 
+### The three commands in brief
+
+**`marine-update`: get a new release.** Needs Internet, except for `--apply`.
+
+| Command | What it does |
+|---|---|
+| `sudo marine-update --check` | says whether the feed has a different version; installs nothing |
+| `sudo marine-update --stage` | downloads and verifies the release and pulls its images; the running stack is untouched |
+| `sudo marine-update --apply` | switches to the staged release; works offline; rolls back if `marine-apply` fails |
+| `sudo marine-update` | checks, stages and applies in one go |
+
+A timer runs it 5 minutes after boot and daily. It only stages unless `AUTO_APPLY=yes` is in `marine.env`.
+A release that failed to apply is skipped until you remove `/var/lib/marine/failed/<version>`.
+
+**`marine-apply`: make the Pi match its config.** Run it after editing `marine.env`. It renders the installed
+release's templates, updates host files, restarts what changed and checks that InfluxDB and SignalK respond.
+It does not fetch anything new. If Wi-Fi settings changed it restarts the access point, which drops Wi-Fi
+connections. `sudo marine-apply --check` only validates `marine.env` and the templates.
+
+**`marine-doctor`: report health.** Changes nothing on the system, so run it whenever in doubt, and after every
+update and boat trip. `FAIL` needs attention (the command exits 1). `WARN` may be normal, for example no CAN data
+on the bench or no clock sync offline. `--json` also writes the report to the landing page; the page keeps
+showing that report until you run it again.
+
+Typical sequences:
+
+```bash
+# upgrade
+sudo marine-update && sudo reboot
+sudo marine-doctor                  # a few minutes after the reboot
+
+# change a setting
+sudo nano /etc/marine/marine.env
+sudo marine-apply && sudo marine-doctor
+```
+
+### Rules
+
 | Rule | Why |
 |---|---|
 | Edit only `/etc/marine/marine.env` on the Pi | everything else is overwritten from the release |
