@@ -82,6 +82,7 @@ done
 curl -sf http://localhost:8086/health | grep -q pass || { echo "InfluxDB not healthy"; docker logs influxdb | tail -20; exit 1; }
 curl -sf http://localhost:3000/signalk >/dev/null    || { echo "SignalK not responding"; docker logs signalk | tail -40; exit 1; }
 curl -sf http://localhost/ | grep -qi 'Smoke' || { echo "landing page missing"; docker logs caddy | tail; exit 1; }
+curl -sfI http://localhost/ | grep -qi '^cache-control: no-cache' || { echo "landing page lacks Cache-Control: no-cache"; exit 1; }
 curl -sf -H 'Host: signalk.elemental.internal' http://localhost/signalk | grep -q endpoints || { echo "Caddy -> SignalK proxy failed"; exit 1; }
 
 echo "==> send PGN 128267 (water depth) frames until a point reaches InfluxDB"

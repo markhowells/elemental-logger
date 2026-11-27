@@ -26,7 +26,10 @@ check "--check validates without --out (as install.sh and marine-doctor call it)
   "${RENDER[*]} --env tests/fixtures/test.env --check"
 check "rendering without --out or --check is refused" "! ${RENDER[*]} --env tests/fixtures/test.env"
 check "Caddyfile http mode by default" "grep -q '^http://elemental.internal' $T/r1/caddy/Caddyfile && grep -q 'auto_https off' $T/r1/caddy/Caddyfile"
+check "both landing page sites tell browsers to re-check" "[ \$(grep -c 'header Cache-Control no-cache' $T/r1/caddy/Caddyfile) -eq 2 ]"
 check "dnsmasq wildcard for the domain" "grep -q '^address=/elemental.internal/10.42.0.1' $T/r1/dnsmasq.conf"
+check "landing page links include the service ports, for use without the Pi's DNS" \
+  "for p in 3000 8086 9000; do grep -q \"data-port=\\\"\$p\\\" href=\\\"http://elemental.internal:\$p/\\\"\" $T/r1/landing/index.html || exit 1; done"
 
 cp tests/fixtures/test.env "$T/opts.env"
 printf 'TLS_MODE=internal\nINFLUX_RESOLUTION_MS=1000\nINFLUX_IGNORED_PATHS=electrical.switches.bank.*, navigation.x\nSIGNALK_ALLOW_READONLY=true\nDOMAIN=boat.internal\n' >> "$T/opts.env"
