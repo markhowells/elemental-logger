@@ -9,11 +9,16 @@
   body { max-width: 34rem; margin: 2rem auto; padding: 0 1rem; }
   h1 { margin-bottom: .2rem; }
   .sub { opacity: .7; margin-top: 0; }
-  a.card { display: block; padding: .9rem 1rem; margin: .6rem 0; border: 1px solid #8884;
-           border-radius: .6rem; text-decoration: none; color: inherit; }
-  a.card:hover { border-color: #08f; }
-  a.card b { display: block; }
-  a.card span { opacity: .7; font-size: .9rem; }
+  .card { margin: .6rem 0; border: 1px solid #8884; border-radius: .6rem; }
+  .card:hover { border-color: #08f; }
+  .card a { display: block; padding: 0 1rem; text-decoration: none; color: inherit; }
+  .card a.svc { padding-top: .9rem; padding-bottom: .3rem; }
+  .card b { display: block; }
+  .card b small { opacity: .7; font-weight: normal; }
+  .card span { opacity: .7; font-size: .9rem; }
+  .card a.byname { padding-bottom: .7rem; font-size: .8rem; color: #08f; overflow-wrap: anywhere; }
+  h2 { font-size: 1.1rem; margin: 1.8rem 0 .2rem; }
+  dt { margin-top: .7rem; } dd { margin: .15rem 0 0; opacity: .8; font-size: .9rem; }
   #status { margin-top: 1.5rem; font-size: .9rem; }
   .ok { color: #1a7f37; } .warn { color: #b26a00; } .fail { color: #c62828; }
   footer { margin-top: 2rem; opacity: .6; font-size: .8rem; }
@@ -23,15 +28,41 @@
 <h1>VESSEL_NAME_PLACEHOLDER</h1>
 <p class="sub">Instrument data logger</p>
 
-<a class="card" href="URL_SCHEME_PLACEHOLDERsignalk.DOMAIN_PLACEHOLDER/"><b>SignalK</b><span>Live instrument data and dashboards</span></a>
-<a class="card" href="URL_SCHEME_PLACEHOLDERinflux.DOMAIN_PLACEHOLDER/"><b>InfluxDB</b><span>Logged history and queries</span></a>
-<a class="card" href="URL_SCHEME_PLACEHOLDERportainer.DOMAIN_PLACEHOLDER/"><b>Portainer</b><span>Containers and logs</span></a>
+<div class="card">
+  <a class="svc" data-port="3000" href="http://DOMAIN_PLACEHOLDER:3000/"><b>SignalK <small>:3000</small></b><span>Live instrument data and dashboards</span></a>
+  <a class="byname" href="URL_SCHEME_PLACEHOLDERsignalk.DOMAIN_PLACEHOLDER/">by name: signalk.DOMAIN_PLACEHOLDER</a>
+</div>
+<div class="card">
+  <a class="svc" data-port="8086" href="http://DOMAIN_PLACEHOLDER:8086/"><b>InfluxDB <small>:8086</small></b><span>Logged history and queries</span></a>
+  <a class="byname" href="URL_SCHEME_PLACEHOLDERinflux.DOMAIN_PLACEHOLDER/">by name: influx.DOMAIN_PLACEHOLDER</a>
+</div>
+<div class="card">
+  <a class="svc" data-port="9000" href="http://DOMAIN_PLACEHOLDER:9000/"><b>Portainer <small>:9000</small></b><span>Containers and logs</span></a>
+  <a class="byname" href="URL_SCHEME_PLACEHOLDERportainer.DOMAIN_PLACEHOLDER/">by name: portainer.DOMAIN_PLACEHOLDER</a>
+</div>
+
+<h2>Looking after the Pi</h2>
+<p class="sub">Run these over SSH.</p>
+<dl>
+  <dt><code>sudo marine-doctor</code></dt>
+  <dd>Health report; changes nothing on the system. Add <code>--json</code> to show the report on this page.</dd>
+  <dt><code>sudo marine-update</code></dt>
+  <dd>Download and apply a new release (needs Internet). <code>--check</code> only looks, <code>--stage</code>
+      downloads, <code>--apply</code> switches to a downloaded release (works offline).</dd>
+  <dt><code>sudo marine-apply</code></dt>
+  <dd>Re-apply the installed release after editing <code>/etc/marine/marine.env</code>. Fetches nothing new.
+      Changed Wi-Fi settings drop Wi-Fi connections.</dd>
+</dl>
 
 <div id="status">Checking status…</div>
 
 <footer>Release VERSION_PLACEHOLDER · <a href="status.json">status.json</a></footer>
 
 <script>
+// Point the port links at whatever address reached this page, so they work without the Pi's DNS.
+document.querySelectorAll('a[data-port]').forEach(a => {
+  a.href = 'http://' + location.hostname + ':' + a.dataset.port + '/';
+});
 fetch('status.json', {cache: 'no-store'}).then(r => r.json()).then(s => {
   const el = document.getElementById('status');
   el.innerHTML = '<b>Status</b> <small>(' + (s.generated || '?') + ')</small><ul>' +

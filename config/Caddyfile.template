@@ -7,11 +7,15 @@
 SCHEME_PLACEHOLDERDOMAIN_PLACEHOLDER, SCHEME_PLACEHOLDER10.42.0.1 {
 	TLS_PLACEHOLDER
 	root * /srv/landing
+	# Make browsers re-check every time, so an updated release shows up at once.
+	header Cache-Control no-cache
 	file_server
 }
 
 :80 {
 	root * /srv/landing
+	# Make browsers re-check every time, so an updated release shows up at once.
+	header Cache-Control no-cache
 	file_server
 }
 
